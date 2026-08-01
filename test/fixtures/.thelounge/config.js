@@ -1,7 +1,9 @@
 import config from "../../../defaults/config.js";
 
 config.defaults.name = "Example IRC Server";
-config.defaults.host = "irc.example.com";
+// Intentionally mixed-case to exercise the load-time normalization in
+// Config.setHome(); it is lowercased to "irc.example.com" after load.
+config.defaults.host = "irc.Example.com";
 config.public = true;
 config.prefetch = true;
 // @ts-ignore

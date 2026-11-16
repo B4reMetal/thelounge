@@ -3,6 +3,7 @@ import {ClientChan, ClientMessage} from "./types";
 import {SharedNetworkChan} from "../../shared/types/network";
 import {SharedMsg, MessageType} from "../../shared/types/msg";
 import {ChanType} from "../../shared/types/chan";
+import {messageKey} from "../../shared/messageKey";
 
 /**
  * Opts a message out of Vue's deep reactivity. Call this on every message
@@ -35,18 +36,18 @@ export function markMsgsRaw<T extends SharedMsg>(msgs: T[]): T[] {
  *
  * History can reach the client twice (a page it asked for and the page the
  * server sends when it first reads a channel from storage), so everything is
- * matched by id. Prepending happens in slices because `unshift(...items)`
+ * matched by id and time (see messageKey). Prepending happens in slices because `unshift(...items)`
  * throws once `items` is larger than the engine's argument limit, which is
  * as low as 65k in some browsers.
  */
 export function prependMessages(channel: ClientChan, incoming: SharedMsg[]): number {
-	const known = new Set<number>();
+	const known = new Set<string>();
 
 	for (const message of channel.messages) {
-		known.add(message.id);
+		known.add(messageKey(message));
 	}
 
-	const fresh = markMsgsRaw(incoming.filter((m) => !known.has(m.id)));
+	const fresh = markMsgsRaw(incoming.filter((m) => !known.has(messageKey(m))));
 	const chunkSize = 10000;
 
 	for (let end = fresh.length; end > 0; end -= chunkSize) {
@@ -54,11 +55,6 @@ export function prependMessages(channel: ClientChan, incoming: SharedMsg[]): num
 	}
 
 	return fresh.length;
-}
-
-// Ids restart with the server on old data, id and time together don't repeat
-function messageKey(message: SharedMsg): string {
-	return `${message.id}:${new Date(message.time).getTime()}`;
 }
 
 function appendMessages(channel: ClientChan, incoming: SharedMsg[]): number {

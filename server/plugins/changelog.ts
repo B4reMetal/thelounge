@@ -2,6 +2,7 @@ import colors from "chalk";
 import log from "../log.js";
 import pkg from "../../package.json" with {type: "json"};
 import ClientManager from "../clientManager.js";
+import outgoingFetch from "./outgoingFetch.js";
 import {SharedChangelogData} from "../../shared/types/changelog.js";
 
 const TIME_TO_LIVE = 15 * 60 * 1000; // 15 minutes, in milliseconds
@@ -46,7 +47,7 @@ async function fetch() {
 			},
 		};
 
-		const response = await globalThis.fetch(
+		const response = await outgoingFetch(
 			"https://api.github.com/repos/thelounge/thelounge/releases",
 			fetchOptions
 		);

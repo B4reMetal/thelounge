@@ -351,6 +351,9 @@ export default {
 	// Configure detection and aggregation of mass IRC events (netsplits/reconnects).
 	// When enabled, rapid consecutive status messages are buffered and displayed as
 	// a single summary message instead of flooding the chat with individual messages.
+	// The individual messages are still written to message storage, so history
+	// loaded from storage (for example after a restart) shows them instead of the
+	// summary.
 	//
 	// The available keys for the `massEventDetection` object are:
 	//
@@ -363,13 +366,15 @@ export default {
 	// - `refreshNamesAfter`: Whether to send NAMES after mass event ends to refresh
 	//   the user list.
 	//
-	// This value is set to enable mass event detection by default:
+	// By default, mass event detection is enabled and triggers on 10 messages
+	// within 10 seconds, ends after 10 seconds without one or after 5 minutes, and
+	// refreshes the user list afterwards:
 	massEventDetection: {
 		enable: true,
-		threshold: 10,        // Trigger after 10 messages (was 20)
-		windowMs: 10000,      // 10 second window (was 5s)
-		cooldownMs: 10000,    // 10 seconds of inactivity to end (was 3s)
-		maxDurationMs: 300000, // 5 minute max (was 1 min)
+		threshold: 10,
+		windowMs: 10000,
+		cooldownMs: 10000,
+		maxDurationMs: 300000,
 		refreshNamesAfter: true,
 	},
 

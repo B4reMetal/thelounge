@@ -4,6 +4,7 @@ import Chan from "../../server/models/chan.js";
 import Client from "../../server/client.js";
 import Msg from "../../server/models/msg.js";
 import Config from "../../server/config.js";
+import MassEventAggregator from "../../server/plugins/massEventAggregator.js";
 import {ChanType} from "../../shared/types/chan.js";
 
 // In-memory stand-in for SqliteMessageStorage, holding rows oldest first
@@ -55,6 +56,7 @@ function setup(storedCount: number) {
 		emit: (event: string, data: unknown) => emitted.push({event, data}),
 		find: () => ({network, chan}),
 	});
+	client.massEventAggregator = new MassEventAggregator(client);
 
 	return {stored, provider, chan, network, client: client as Client, emitted};
 }
@@ -105,6 +107,41 @@ describe("History paging", function () {
 		);
 	});
 
+	it("keeps a stored message that only shares its id with one in memory", async function () {
+		const {chan, network, client, stored} = setup(50);
+
+		// arrived live, and happens to reuse the id of a stored message
+		// written by an earlier run of the server
+		const live = message(10);
+		live.time = new Date(100 * 1000);
+		chan.messages.push(live);
+
+		chan.loadMessages(client, network as any, true);
+		await settle();
+
+		expect(chan.messages).to.have.lengthOf(51);
+		expect(chan.messages.slice(0, 50)).to.deep.equal(stored);
+		expect(chan.messages[50]).to.equal(live);
+	});
+
+	it("keeps stored pages that share ids with messages in memory", async function () {
+		const {chan, network, client} = setup(400);
+
+		chan.loadMessages(client, network as any, true);
+		await settle();
+
+		// memory holds 251-400. Give one of them the id of an older stored
+		// message, as ids from before they survived restarts can repeat.
+		chan.messages[chan.messages.length - 1].id = 200;
+
+		const page = await client.more({target: chan.id, lastId: 251, condensed: false});
+		const ids = page!.messages.map((m) => m.id);
+
+		expect(ids).to.include(200);
+		expect(ids).to.not.include(251);
+		expect(ids[ids.length - 1]).to.equal(250);
+	});
+
 	it("tells clients when a channel has no stored history", async function () {
 		const {chan, network, client, emitted} = setup(0);
 
@@ -147,6 +184,47 @@ describe("History paging", function () {
 		expect(seen).to.deep.equal(Array.from({length: 400}, (_, i) => i + 1));
 		// storage pages are served from disk, they must not pile up in memory
 		expect(chan.messages).to.have.lengthOf(150);
+	});
+
+	it("never sends more than a page from storage", async function () {
+		const {chan, network, client} = setup(400);
+
+		chan.loadMessages(client, network as any, true);
+		await settle();
+
+		// memory holds 251..400, so this page comes from storage alone
+		const page = await client.more({
+			target: chan.id,
+			lastId: 251,
+			lastTime: 251 * 1000,
+			condensed: false,
+			beforeTime: 251 * 1000,
+		});
+
+		expect(page!.messages.map((m) => m.id)).to.deep.equal(
+			Array.from({length: 100}, (_, i) => i + 151)
+		);
+		expect(page!.hasMore).to.equal(true);
+	});
+
+	it("finds the message to page from by id and time", async function () {
+		const {chan, network, client} = setup(400);
+
+		chan.loadMessages(client, network as any, true);
+		await settle();
+
+		// an older message that shares its id with a newer one in memory
+		chan.messages[20].id = chan.messages[120].id;
+
+		const page = await client.more({
+			target: chan.id,
+			lastId: chan.messages[120].id,
+			lastTime: chan.messages[120].time.getTime(),
+			condensed: false,
+		});
+
+		expect(page!.messages).to.have.lengthOf(100);
+		expect(page!.messages[99]).to.equal(chan.messages[119]);
 	});
 
 	it("reports no more history when memory holds everything", async function () {

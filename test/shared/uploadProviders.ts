@@ -79,4 +79,54 @@ describe("UploadProviders", function () {
 			expect(fetchStub.called).to.equal(false);
 		});
 	});
+
+	describe("quax", function () {
+		const provider = UploadProviders.find((p) => p.id === "quax")!;
+		const file = new File(["hello"], "cat.png", {type: "image/png"});
+		let fetchStub: sinon.SinonStub;
+
+		beforeEach(function () {
+			fetchStub = sinon.stub(globalThis, "fetch");
+		});
+
+		afterEach(function () {
+			fetchStub.restore();
+		});
+
+		async function uploadError() {
+			try {
+				await provider.upload(file, "3days");
+			} catch (e) {
+				return e as Error;
+			}
+
+			return undefined;
+		}
+
+		it("should parse the JSON response and return the raw file url", async function () {
+			fetchStub.resolves(
+				Response.json({
+					success: true,
+					files: [{url: "https://qu.ax/abc", file_name: "abc"}],
+				})
+			);
+
+			const url = await provider.upload(file, "3days");
+
+			expect(url).to.equal("https://qu.ax/x/abc.png");
+			expect((fetchStub.firstCall.args[1].body as FormData).get("expiry")).to.equal("3");
+		});
+
+		it("should surface the API error description", async function () {
+			fetchStub.resolves(Response.json({success: false, description: "File too large"}));
+
+			expect((await uploadError())?.message).to.equal("File too large");
+		});
+
+		it("should fail cleanly on a non-JSON response", async function () {
+			fetchStub.resolves(new Response("<html>Bad Gateway</html>", {status: 502}));
+
+			expect((await uploadError())?.message).to.equal("Unknown Error");
+		});
+	});
 });

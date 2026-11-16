@@ -2081,13 +2081,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@fortawesome/fontawesome-free@npm:5.15.4":
-  version: 5.15.4
-  resolution: "@fortawesome/fontawesome-free@npm:5.15.4"
-  checksum: 10c0/0a12f11b17b3073475df965d423ac485715e281d11ecde17250fab5dc0a177fb29ced59242f6c024bef59429c502ba8fe831ed9500e14713cc30138e70df8fbc
-  languageName: node
-  linkType: hard
-
 "@humanfs/core@npm:^0.19.2":
   version: 0.19.2
   resolution: "@humanfs/core@npm:0.19.2"
@@ -2538,13 +2531,6 @@ __metadata:
   version: 0.1.1
   resolution: "@one-ini/wasm@npm:0.1.1"
   checksum: 10c0/54700e055037f1a63bfcc86d24822203b25759598c2c3e295d1435130a449108aebc119c9c2e467744767dbe0b6ab47a182c61aa1071ba7368f5e20ab197ba65
-  languageName: node
-  linkType: hard
-
-"@phosphor-icons/web@npm:2.1.2":
-  version: 2.1.2
-  resolution: "@phosphor-icons/web@npm:2.1.2"
-  checksum: 10c0/2da148aca2c97f51b632216aac7949e5d2ca8e4d573133dad9d0b47efb4b05512d844ef470a1fe9bfaf15c89f492586c1a39b1890516667664195d7d646ae410
   languageName: node
   linkType: hard
 
@@ -11022,9 +11008,7 @@ __metadata:
     "@babel/plugin-transform-runtime": "npm:7.28.5"
     "@babel/preset-env": "npm:7.28.5"
     "@fastify/busboy": "npm:3.2.6"
-    "@fortawesome/fontawesome-free": "npm:5.15.4"
     "@istanbuljs/nyc-config-typescript": "npm:1.0.2"
-    "@phosphor-icons/web": "npm:2.1.2"
     "@stylistic/stylelint-plugin": "npm:^4.0.0"
     "@textcomplete/core": "npm:0.1.13"
     "@textcomplete/textarea": "npm:0.1.13"

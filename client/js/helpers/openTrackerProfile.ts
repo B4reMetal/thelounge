@@ -2,7 +2,12 @@ import socket from "../socket";
 import {store} from "../store";
 import type {ClientChan, ClientNetwork} from "../types";
 import {openInNewTab} from "./openInNewTab";
-import {resolveTrackerProfileUrl, trackerProfileNeedsUser} from "./trackerProfile";
+import {parseUserTrackers, type UserTracker} from "../../../shared/trackers";
+import {
+	resolveTrackerProfileUrl,
+	trackerProfileNeedsUser,
+	withUserTrackers,
+} from "./trackerProfile";
 
 type Waiting = {
 	network: ClientNetwork;
@@ -11,6 +16,28 @@ type Waiting = {
 	tab: Window | null;
 	timer: ReturnType<typeof setTimeout>;
 };
+
+// The user's own trackers, read again only when the setting changes
+let parsedFrom: unknown = null;
+let parsed: UserTracker[] = [];
+
+function userTrackers() {
+	const stored = store.state.settings.userTrackers;
+
+	if (stored !== parsedFrom) {
+		parsedFrom = stored;
+		parsed = parseUserTrackers(stored);
+	}
+
+	return parsed;
+}
+
+/**
+ * The trackers profile links on this network are built from: the server's,
+ * with the user's own from their settings over them. Only for profile links;
+ * see withUserTrackers.
+ */
+const linkTrackers = (network: ClientNetwork) => withUserTrackers(network, userTrackers());
 
 // Lookups the server has yet to answer, by channel id and nick
 const waiting = new Map<string, Waiting>();
@@ -38,7 +65,12 @@ function finish(id: string, user?: {ident?: string; hostname?: string}) {
 	clearTimeout(lookup.timer);
 	waiting.delete(id);
 
-	const url = resolveTrackerProfileUrl(lookup.network, lookup.channel, lookup.nick, user);
+	const url = resolveTrackerProfileUrl(
+		linkTrackers(lookup.network),
+		lookup.channel,
+		lookup.nick,
+		user
+	);
 
 	if (!url) {
 		lookup.tab?.close();
@@ -69,9 +101,11 @@ export function hasTrackerProfile(
 	nick: string,
 	trackerId?: string
 ) {
+	const trackers = linkTrackers(network);
+
 	return (
-		trackerProfileNeedsUser(network, channel, trackerId) ||
-		resolveTrackerProfileUrl(network, channel, nick, undefined, trackerId) !== null
+		trackerProfileNeedsUser(trackers, channel, trackerId) ||
+		resolveTrackerProfileUrl(trackers, channel, nick, undefined, trackerId) !== null
 	);
 }
 
@@ -85,8 +119,10 @@ export function openTrackerProfile(
 	nick: string,
 	trackerId?: string
 ) {
-	if (!trackerProfileNeedsUser(network, channel, trackerId)) {
-		const url = resolveTrackerProfileUrl(network, channel, nick, undefined, trackerId);
+	const trackers = linkTrackers(network);
+
+	if (!trackerProfileNeedsUser(trackers, channel, trackerId)) {
+		const url = resolveTrackerProfileUrl(trackers, channel, nick, undefined, trackerId);
 
 		if (url) {
 			openInNewTab(url);

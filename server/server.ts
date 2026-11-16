@@ -39,6 +39,7 @@ import {
 	ConfigNetDefaults,
 	LockedConfigNetDefaults,
 } from "../shared/types/config.js";
+import {userTrackerLimits, userTrackersSetting} from "../shared/trackers.js";
 
 type ServerOptions = {
 	dev: boolean;
@@ -841,6 +842,15 @@ function initializeClient(
 				typeof newSetting.value === "object" ||
 				typeof newSetting.name !== "string" ||
 				newSetting.name[0] === "_"
+			) {
+				return;
+			}
+
+			// Kept small, it is sent to every client of the user and saved with them
+			if (
+				newSetting.name === userTrackersSetting &&
+				(typeof newSetting.value !== "string" ||
+					newSetting.value.length > userTrackerLimits.storedLength)
 			) {
 				return;
 			}

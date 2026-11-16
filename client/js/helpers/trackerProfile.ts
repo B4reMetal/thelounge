@@ -1,10 +1,12 @@
 import type {ClientChan, ClientNetwork} from "../types";
 import {ChanType} from "../../../shared/types/chan";
+import type {TrackerInfo} from "../../../shared/types/network";
 import {
-	type TrackerInfo,
+	isUsableProfileUrl,
 	trackerIdentPlaceholder,
 	trackerNickPlaceholder,
-} from "../../../shared/types/network";
+	type UserTracker,
+} from "../../../shared/trackers";
 
 type Network = Pick<ClientNetwork, "trackers">;
 type Channel = Pick<ClientChan, "type" | "name"> | undefined;
@@ -37,6 +39,66 @@ export function findTracker(network: Network, channel: Channel, id: string) {
 	return network.trackers?.find(
 		(t) => t.id.toLowerCase() === wanted && trackerAppliesTo(t, channel)
 	);
+}
+
+/**
+ * The trackers to build profile links from on this network: the server's
+ * (config.js) with the user's own entries from their settings over them.
+ *
+ * A user entry with the id of one of the server's trackers replaces its
+ * profile address and users' hostname, or hides its link; any other entry for
+ * this network's host is added, ahead of the server's. Name and channels of
+ * the server's trackers stay as they are.
+ *
+ * This is for profile links only. Shoutbox bridge matchers must keep looking
+ * at `network.trackers` (see findTracker), which this leaves untouched: what a
+ * user writes in their settings must not decide whose messages get rewritten.
+ */
+export function withUserTrackers(
+	network: Pick<ClientNetwork, "trackers"> & {host?: string},
+	userTrackers: UserTracker[]
+): Network {
+	const host = network.host?.toLowerCase();
+	const own = host ? userTrackers.filter((t) => t.network.toLowerCase() === host) : [];
+
+	if (own.length === 0) {
+		return {trackers: network.trackers};
+	}
+
+	const serverTrackers = network.trackers ?? [];
+	const ownFor = (id: string) => own.find((t) => t.id.toLowerCase() === id.toLowerCase());
+	const merged: TrackerInfo[] = [];
+
+	for (const entry of own) {
+		const isServers = serverTrackers.some((t) => t.id.toLowerCase() === entry.id.toLowerCase());
+
+		// Settings can be written by older clients or by hand: check again
+		if (!isServers && !entry.hidden && isUsableProfileUrl(entry.profileUrl)) {
+			merged.push({
+				id: entry.id,
+				name: entry.name ?? entry.id,
+				channels: entry.channels,
+				profileUrl: entry.profileUrl,
+				userHost: entry.userHost,
+			});
+		}
+	}
+
+	for (const tracker of serverTrackers) {
+		const entry = ownFor(tracker.id);
+
+		if (!entry) {
+			merged.push(tracker);
+		} else if (entry.hidden) {
+			merged.push({...tracker, profileUrl: undefined, userHost: undefined});
+		} else if (isUsableProfileUrl(entry.profileUrl)) {
+			merged.push({...tracker, profileUrl: entry.profileUrl, userHost: entry.userHost});
+		} else {
+			merged.push(tracker);
+		}
+	}
+
+	return {trackers: merged};
 }
 
 // Whether the tracker's profile address is built from the ident, which

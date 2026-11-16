@@ -532,13 +532,31 @@ function initializeClient(
 	});
 
 	// Fetch messages around a specific time (for jumping to search results)
+	// Both always answer, so a client waiting on one doesn't wait forever
 	socket.on("messages:around", async (data) => {
 		if (_.isPlainObject(data)) {
 			const result = await client.getMessagesAround(data);
 
-			if (result !== null) {
-				socket.emit("messages:around", result);
-			}
+			socket.emit(
+				"messages:around",
+				result || {
+					chan: data.target,
+					messages: [],
+					hasMoreBefore: false,
+					hasMoreAfter: false,
+				}
+			);
+		}
+	});
+
+	socket.on("messages:after", async (data) => {
+		if (_.isPlainObject(data)) {
+			const result = await client.getMessagesAfter(data);
+
+			socket.emit(
+				"messages:after",
+				result || {chan: data.target, messages: [], hasMore: false}
+			);
 		}
 	});
 

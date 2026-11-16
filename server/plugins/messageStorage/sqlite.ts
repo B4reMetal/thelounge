@@ -937,14 +937,66 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 	}
 
 	/**
-	 * Get messages around a specific timestamp (for jumping to search results)
-	 * Returns messages before and after the target time
+	 * Get the messages around a specific timestamp, oldest first, for jumping
+	 * to a point in history that isn't loaded. Also reports whether storage
+	 * holds anything beyond either end of what is returned.
 	 */
 	async getMessagesAround(
 		networkUuid: string,
 		channelName: string,
 		targetTime: number,
 		limit: number = 200
+	): Promise<{messages: Message[]; hasMoreBefore: boolean; hasMoreAfter: boolean}> {
+		await this.initDone.promise;
+
+		if (!this.isEnabled) {
+			return {messages: [], hasMoreBefore: false, hasMoreAfter: false};
+		}
+
+		// Flush any pending batched writes before reading
+		await this.flushBatch();
+
+		const halfLimit = Math.floor(limit / 2);
+
+		// One row more than needed on each side tells whether there is more
+		const beforeRows = await this.serialize_fetchall(
+			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time <= ? ORDER BY time DESC, id DESC LIMIT ?",
+			networkUuid,
+			channelName.toLowerCase(),
+			targetTime,
+			halfLimit + 1
+		);
+
+		const afterRows = await this.serialize_fetchall(
+			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time > ? ORDER BY time ASC, id ASC LIMIT ?",
+			networkUuid,
+			channelName.toLowerCase(),
+			targetTime,
+			halfLimit + 1
+		);
+
+		const hasMoreBefore = beforeRows.length > halfLimit;
+		const hasMoreAfter = afterRows.length > halfLimit;
+
+		const allRows = [
+			...beforeRows.slice(0, halfLimit).reverse(),
+			...afterRows.slice(0, halfLimit),
+		];
+
+		return {messages: allRows.map(rowToMessage), hasMoreBefore, hasMoreAfter};
+	}
+
+	/**
+	 * Get messages at or after a specific timestamp, oldest first.
+	 *
+	 * Rows sharing the anchor's exact millisecond are returned as well, callers
+	 * drop the ones they already hold. See getMessagesBefore() for why.
+	 */
+	async getMessagesAfter(
+		networkUuid: string,
+		channelName: string,
+		afterTime: number,
+		limit: number
 	): Promise<Message[]> {
 		await this.initDone.promise;
 
@@ -952,42 +1004,18 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			return [];
 		}
 
-		const halfLimit = Math.floor(limit / 2);
+		// Flush any pending batched writes before reading
+		await this.flushBatch();
 
-		// Get messages before the target time
-		const beforeRows = await this.serialize_fetchall(
-			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time <= ? ORDER BY time DESC, id DESC LIMIT ?",
+		const rows = await this.serialize_fetchall(
+			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time >= ? ORDER BY time ASC, id ASC LIMIT ?",
 			networkUuid,
 			channelName.toLowerCase(),
-			targetTime,
-			halfLimit
+			afterTime,
+			limit
 		);
 
-		// Get messages after the target time
-		const afterRows = await this.serialize_fetchall(
-			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time > ? ORDER BY time ASC, id ASC LIMIT ?",
-			networkUuid,
-			channelName.toLowerCase(),
-			targetTime,
-			halfLimit
-		);
-
-		// Combine: before (reversed) + after
-		const allRows = [...beforeRows.reverse(), ...afterRows];
-
-		return allRows.map((row): Message => {
-			const r = row as Record<string, unknown>;
-			const msg = JSON.parse(r.msg as string);
-			msg.time = r.time;
-			msg.type = r.type;
-
-			// Use stored ID from JSON if available, fall back to SQLite row ID
-			if (typeof msg.id !== "number") {
-				msg.id = r.id as number;
-			}
-
-			return new Msg(msg);
-		});
+		return rows.map(rowToMessage);
 	}
 
 	/**
@@ -1065,6 +1093,21 @@ export function trigramQuery(term: string): string | null {
 	}
 
 	return Array.from(trigrams).join(" AND ");
+}
+
+// Turns a `SELECT id, msg, type, time` row back into a message
+function rowToMessage(row: unknown): Message {
+	const r = row as Record<string, unknown>;
+	const msg = JSON.parse(r.msg as string);
+	msg.time = r.time;
+	msg.type = r.type;
+
+	// Use stored ID from JSON if available, fall back to SQLite row ID
+	if (typeof msg.id !== "number") {
+		msg.id = r.id as number;
+	}
+
+	return new Msg(msg);
 }
 
 function parseSearchRowsToMessages(rows: unknown[]) {

@@ -754,34 +754,62 @@ class Client {
 		return this.messageProvider.search(query);
 	}
 
+	/**
+	 * The slice of stored history around a point in time, for jumping to a
+	 * message the client doesn't have loaded.
+	 */
 	async getMessagesAround(data: {target: number; time: number}) {
 		const target = this.find(data.target);
 
-		if (!target) {
-			return null;
-		}
-
-		const chan = target.chan;
-		const network = target.network;
-
-		if (!this.messageProvider?.isEnabled) {
+		if (!target || !this.messageProvider?.isEnabled || typeof data.time !== "number") {
 			return null;
 		}
 
 		try {
-			const messages = await this.messageProvider.getMessagesAround(
-				network.uuid,
-				chan.name,
+			const around = await this.messageProvider.getMessagesAround(
+				target.network.uuid,
+				target.chan.name,
 				data.time,
 				200
 			);
 
-			return {
-				chan: chan.id,
-				messages: messages,
-			};
+			return {chan: target.chan.id, ...around};
 		} catch (err) {
 			log.error("Failed to get messages around time:", String(err));
+			return null;
+		}
+	}
+
+	/**
+	 * The next page of stored history going forward in time, for a client that
+	 * is reading an old slice and scrolling towards the present.
+	 */
+	async getMessagesAfter(data: {target: number; afterTime: number}) {
+		const target = this.find(data.target);
+
+		if (!target || !this.messageProvider?.isEnabled || typeof data.afterTime !== "number") {
+			return null;
+		}
+
+		// Room for rows sharing the anchor's millisecond, which the client drops
+		const limit = this.historyBatchSizes().batchSize + 50;
+
+		try {
+			const messages = await this.messageProvider.getMessagesAfter(
+				target.network.uuid,
+				target.chan.name,
+				data.afterTime,
+				limit
+			);
+
+			return {
+				chan: target.chan.id,
+				messages,
+				// A short read means this page reaches the newest stored message
+				hasMore: messages.length >= limit,
+			};
+		} catch (err) {
+			log.error("Failed to get messages after time:", String(err));
 			return null;
 		}
 	}

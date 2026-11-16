@@ -56,6 +56,140 @@ export function prependMessages(channel: ClientChan, incoming: SharedMsg[]): num
 	return fresh.length;
 }
 
+// Ids restart with the server on old data, id and time together don't repeat
+function messageKey(message: SharedMsg): string {
+	return `${message.id}:${new Date(message.time).getTime()}`;
+}
+
+function appendMessages(channel: ClientChan, incoming: SharedMsg[]): number {
+	const known = new Set(channel.messages.map(messageKey));
+	const fresh = markMsgsRaw(incoming.filter((m) => !known.has(messageKey(m))));
+	const chunkSize = 10000;
+
+	for (let start = 0; start < fresh.length; start += chunkSize) {
+		channel.messages.push(...fresh.slice(start, start + chunkSize));
+	}
+
+	return fresh.length;
+}
+
+// How many live messages a history slice holds on to before giving up and
+// leaving them to be read back from storage
+const maxBufferedLive = 500;
+
+/**
+ * Puts the stored messages around some point in time on screen, for jumping to
+ * a message that isn't loaded.
+ *
+ * If they connect to what is already loaded they are simply added to it.
+ * Otherwise they replace it and the channel becomes a history slice: a window
+ * into the past that can be extended in both directions, and that live
+ * messages stay out of until it has been extended all the way to the present.
+ */
+export function showMessagesAround(
+	channel: ClientChan,
+	data: {messages: SharedMsg[]; hasMoreBefore: boolean; hasMoreAfter: boolean}
+): void {
+	if (data.messages.length === 0) {
+		return;
+	}
+
+	const loaded = new Set(channel.messages.map(messageKey));
+	const connects = data.messages.some((m) => loaded.has(messageKey(m)));
+
+	if (connects && !channel.historySlice) {
+		// The target was older than everything loaded, so whatever is new
+		// here sits directly in front of it
+		prependMessages(channel, data.messages);
+	} else if (!data.hasMoreAfter) {
+		// Reaches the newest stored message: this is the present, keep
+		// anything newer that is only in memory
+		const fetched = new Set(data.messages.map(messageKey));
+		const newer = (channel.historySlice?.live || channel.messages).filter(
+			(m) => !fetched.has(messageKey(m))
+		);
+
+		channel.messages = markMsgsRaw(data.messages).concat(newer);
+		channel.historySlice = undefined;
+	} else {
+		channel.messages = markMsgsRaw(data.messages);
+		channel.historySlice = {hasNewer: true, loadingNewer: false, live: [], liveDropped: false};
+	}
+
+	channel.moreHistoryAvailable = data.hasMoreBefore;
+}
+
+/**
+ * Extends a history slice towards the present with the next page from storage.
+ * Once storage has nothing newer, the live messages collected meanwhile are
+ * added and the channel is a normal, live one again.
+ */
+export function showMessagesAfter(
+	channel: ClientChan,
+	data: {messages: SharedMsg[]; hasMore: boolean}
+): void {
+	const slice = channel.historySlice;
+
+	if (!slice) {
+		return;
+	}
+
+	slice.loadingNewer = false;
+	const added = appendMessages(channel, data.messages);
+
+	if (data.hasMore) {
+		// Nothing new in a full page would mean asking for it again forever
+		slice.hasNewer = added > 0;
+		return;
+	}
+
+	if (slice.liveDropped) {
+		// Live messages were dropped since this page was requested, they are
+		// in storage by now: ask again
+		return;
+	}
+
+	appendMessages(channel, slice.live);
+	channel.historySlice = undefined;
+}
+
+/**
+ * Takes a message that arrived live. Returns false when the channel is showing
+ * a history slice, in which case the message is held back instead of shown.
+ */
+export function receiveLiveMessage(channel: ClientChan, message: SharedMsg): boolean {
+	const slice = channel.historySlice;
+
+	if (!slice) {
+		channel.messages.push(markMsgRaw(message));
+		return true;
+	}
+
+	slice.live.push(markMsgRaw(message));
+
+	if (slice.live.length > maxBufferedLive) {
+		slice.live = [];
+		slice.liveDropped = true;
+		slice.hasNewer = true;
+	}
+
+	return false;
+}
+
+/**
+ * Drops a history slice. The channel is left empty and has to be filled with
+ * the latest messages again by asking the server for them.
+ */
+export function leaveHistorySlice(channel: ClientChan): void {
+	if (!channel.historySlice) {
+		return;
+	}
+
+	channel.historySlice = undefined;
+	channel.messages = [];
+	channel.moreHistoryAvailable = true;
+}
+
 export function toClientChan(shared: SharedNetworkChan): ClientChan {
 	const history: string[] = [""].concat(
 		shared.messages

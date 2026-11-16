@@ -86,7 +86,14 @@ interface ServerToClientEvents {
 		hasMore: boolean;
 	}>;
 
-	"messages:around": EventHandler<{chan: number; messages: SharedMsg[]}>;
+	"messages:around": EventHandler<{
+		chan: number;
+		messages: SharedMsg[];
+		hasMoreBefore: boolean;
+		hasMoreAfter: boolean;
+	}>;
+
+	"messages:after": EventHandler<{chan: number; messages: SharedMsg[]; hasMore: boolean}>;
 
 	"msg:preview": EventHandler<{id: number; chan: number; preview: LinkPreview}>;
 	"msg:special": EventHandler<{chan: number; data?: unknown}>;
@@ -172,6 +179,8 @@ interface ClientToServerEvents {
 	}>;
 
 	"messages:around": EventHandler<{target: number; time: number}>;
+
+	"messages:after": EventHandler<{target: number; afterTime: number}>;
 
 	"msg:preview:toggle": EventHandler<{
 		target: number;

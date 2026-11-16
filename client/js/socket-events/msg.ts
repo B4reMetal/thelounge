@@ -2,7 +2,7 @@ import socket from "../socket";
 import {cleanIrcMessage} from "../../../shared/irc";
 import {store} from "../store";
 import {switchToChannel} from "../router";
-import {markMsgRaw} from "../chan";
+import {receiveLiveMessage} from "../chan";
 import {ClientChan, NetChan, ClientMessage} from "../types";
 import {SharedMsg, MessageType} from "../../../shared/types/msg";
 import {ChanType} from "../../../shared/types/chan";
@@ -67,7 +67,7 @@ socket.on("msg", function (data) {
 		}
 	}
 
-	channel.messages.push(markMsgRaw(data.msg));
+	const shown = receiveLiveMessage(channel, data.msg);
 
 	if (data.msg.self) {
 		channel.firstUnread = data.msg.id;
@@ -94,7 +94,8 @@ socket.on("msg", function (data) {
 		}
 	}
 
-	if (messageLimit > 0 && channel.messages.length > messageLimit) {
+	// A history slice is not trimmed, its end is not the newest message
+	if (shown && messageLimit > 0 && channel.messages.length > messageLimit) {
 		channel.messages.splice(0, channel.messages.length - messageLimit);
 		channel.moreHistoryAvailable = true;
 	}

@@ -14,6 +14,12 @@ export default <IrcEventHandler>function (irc, network) {
 			const newUser = chan.getUser(user.nick);
 			newUser.setModes(user.modes, network.serverOptions.PREFIX);
 
+			// Only there with the userhost-in-names capability
+			if (user.ident && user.hostname) {
+				newUser.ident = user.ident;
+				newUser.hostname = user.hostname;
+			}
+
 			newUsers.set(user.nick.toLowerCase(), newUser);
 		});
 

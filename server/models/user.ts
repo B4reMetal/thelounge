@@ -8,6 +8,10 @@ class User {
 	away!: string;
 	nick!: string;
 	lastMessage!: number;
+	// What the server said the user's ident and hostname are, when it did.
+	// Kept on the server only, see UserIdentLookup.
+	ident?: string;
+	hostname?: string;
 
 	constructor(attr: Partial<User>, prefix?: Prefix) {
 		_.defaults(this, attr, {

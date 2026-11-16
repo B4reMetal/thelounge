@@ -2,7 +2,13 @@ import {PluginInputHandler} from "./index.js";
 
 const commands = ["whois"];
 
-const input: PluginInputHandler = function ({irc}, chan, cmd, args) {
+const input: PluginInputHandler = function (network, chan, cmd, args) {
+	const {irc} = network;
+
+	if (args.length > 0) {
+		this.userIdentLookup.shownWhoisRequested(network, args[args.length - 1]);
+	}
+
 	if (args.length === 1) {
 		// This queries server of the other user and not of the current user, which
 		// does not know idle time.

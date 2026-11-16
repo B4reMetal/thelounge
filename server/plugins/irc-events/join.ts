@@ -48,7 +48,7 @@ export default <IrcEventHandler>function (irc, network) {
 
 		// User list update callback - executed regardless of buffering
 		const updateUserList = () => {
-			chan.setUser(new User({nick: data.nick}));
+			chan.setUser(new User({nick: data.nick, ident: data.ident, hostname: data.hostname}));
 			this.emit("users", {
 				chan: chan.id,
 			});

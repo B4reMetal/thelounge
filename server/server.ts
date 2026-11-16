@@ -39,6 +39,7 @@ import {
 	ConfigNetDefaults,
 	LockedConfigNetDefaults,
 } from "../shared/types/config.js";
+import {userTrackerLimits, userTrackersSetting} from "../shared/trackers.js";
 
 type ServerOptions = {
 	dev: boolean;
@@ -816,6 +817,15 @@ function initializeClient(
 				return;
 			}
 
+			// Kept small, it is sent to every client of the user and saved with them
+			if (
+				newSetting.name === userTrackersSetting &&
+				(typeof newSetting.value !== "string" ||
+					newSetting.value.length > userTrackerLimits.storedLength)
+			) {
+				return;
+			}
+
 			// We do not need to do write operations and emit events if nothing changed.
 			if (client.config.clientSettings[newSetting.name] !== newSetting.value) {
 				client.config.clientSettings[newSetting.name] = newSetting.value;
@@ -896,11 +906,13 @@ function initializeClient(
 
 			const {target, nick} = data;
 			const networkAndChan = client.find(target);
-			// Only trackers have a use for this, don't hand it out elsewhere
-			const lookup =
-				networkAndChan && Config.getTrackersForHost(networkAndChan.network.host)
-					? client.userIdentLookup.lookup(networkAndChan.network, nick)
-					: Promise.resolve(null);
+			// Answered on any of the user's own networks, not only those with a
+			// tracker in config.js: users can add trackers in their settings.
+			// It tells nothing a /whois wouldn't, and lookups of the same nick
+			// share one WHOIS.
+			const lookup = networkAndChan
+				? client.userIdentLookup.lookup(networkAndChan.network, nick)
+				: Promise.resolve(null);
 
 			void lookup.then((user) => {
 				socket.emit("tracker:user", {target, nick, ...(user ?? {})});

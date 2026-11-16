@@ -6,6 +6,7 @@
 			<SettingTabItem v-if="showGeneral" name="General" class-name="general" to="" />
 			<SettingTabItem name="Appearance" class-name="appearance" to="appearance" />
 			<SettingTabItem name="Notifications" class-name="notifications" to="notifications" />
+			<SettingTabItem name="Trackers" class-name="trackers" to="trackers" />
 			<SettingTabItem v-if="!isPublic" name="Account" class-name="account" to="account" />
 		</ul>
 	</aside>
@@ -74,6 +75,10 @@
 
 .settings-menu .notifications::before {
 	content: "\f0f3"; /* http://fontawesome.io/icon/bell/ */
+}
+
+.settings-menu .trackers::before {
+	content: "\f2c2"; /* http://fontawesome.io/icon/id-card/ */
 }
 
 .settings-menu .general::before {

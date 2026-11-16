@@ -45,7 +45,8 @@ User list and sidebar
 - Enhanced user list (including server-provided user groups) and an enhanced
   user context menu, both optional.
 - Tracker profile links: right-clicking a user on a configured tracker network
-  offers a link to their profile on the tracker's website.
+  offers a link to their profile on the tracker's website. Users can add their
+  own trackers on the Trackers page in the settings.
 - Separate direct message section in the sidebar, with pinned queries and a DM
   filter; "Jump to" in the sidebar; compact sidebar option.
 
@@ -81,8 +82,10 @@ startup and ignored.
 A multi-architecture image (amd64 and arm64) is published to
 `ghcr.io/fhori/thelounge`. Tags:
 
-- `latest`: the current `master` branch.
-- `X.Y.Z` and `X.Y`: releases.
+- `latest`: the newest release.
+- `YYYY.M.PATCH` and `YYYY.M`: releases (see [`docs/RELEASING.md`](docs/RELEASING.md)).
+- `next`: the newest release candidate.
+- `edge`: the current `master` branch.
 - `sha-<short commit>`: every build.
 
 The image keeps its data in `/var/opt/thelounge` (set `THELOUNGE_HOME` to use
@@ -100,14 +103,14 @@ services:
     restart: unless-stopped
 ```
 
-The host folder must be writable by uid 1000, or set `user:` to its owner.
+The host folder must be writable by uid 1000, or set `PUID`/`PGID` (or
+`user:`) to its owner. See [`docs/DOCKER.md`](docs/DOCKER.md).
 
-There is no `thelounge` command on the PATH in the image. Run commands through
-Node:
+Run commands with the `thelounge` command in the container:
 
 ```sh
-docker compose exec thelounge node /app/index.js add <name>
-docker compose exec thelounge node /app/index.js list
+docker compose exec thelounge thelounge add <name>
+docker compose exec thelounge thelounge list
 ```
 
 ## Running from source

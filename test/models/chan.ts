@@ -211,11 +211,14 @@ describe("Chan", function () {
 				"topic",
 				"type",
 				"unread",
+				"historyLoaded",
+				"pinned",
 				// the following are there in special cases, need to fix the types
 				"num_users",
 				"special",
 				"closed",
-				"data"
+				"data",
+				"groups"
 			);
 		});
 

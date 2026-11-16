@@ -235,7 +235,7 @@ export default defineComponent({
 				return props.message;
 			}
 
-			return shoutboxParser(props.message);
+			return shoutboxParser(props.message, props.network, props.channel);
 		});
 
 		const canReply = computed(() => {

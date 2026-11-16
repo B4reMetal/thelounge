@@ -11,6 +11,7 @@ import Msg from "./models/msg.js";
 import Config from "./config.js";
 import {condensedTypes} from "../shared/irc.js";
 import {messageKey} from "../shared/messageKey.js";
+import {migrateRenamedSettings} from "../shared/settings.js";
 import {MessageType} from "../shared/types/msg.js";
 import {SharedMention} from "../shared/types/mention.js";
 
@@ -182,6 +183,10 @@ class Client {
 
 		if (!_.isPlainObject(this.config.clientSettings)) {
 			this.config.clientSettings = {};
+		}
+
+		if (migrateRenamedSettings(this.config.clientSettings)) {
+			this.save();
 		}
 
 		if (!_.isPlainObject(this.config.browser)) {

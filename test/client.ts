@@ -4,6 +4,7 @@ import {ChanType} from "../shared/types/chan.js";
 import ClientManager from "../server/clientManager.js";
 import Client from "../server/client.js";
 import log from "../server/log.js";
+import Config from "../server/config.js";
 
 import sinon from "sinon";
 
@@ -104,5 +105,56 @@ describe("Client", function () {
 		expect(network.channels[1].type).to.equal(ChanType.QUERY);
 		expect(network.channels[2].name).to.equal("&foobar");
 		expect(network.channels[2].type).to.equal(ChanType.CHANNEL);
+	});
+
+	describe("renamed settings", function () {
+		let wasPublic: boolean;
+
+		beforeEach(function () {
+			// Users are only saved outside public mode
+			wasPublic = Config.values.public;
+			Config.values.public = false;
+		});
+
+		afterEach(function () {
+			Config.values.public = wasPublic;
+		});
+
+		it("should move settings saved under their old names and save the user", function () {
+			const manager = new ClientManager();
+			const saveUser = sinon.stub(manager, "saveUser");
+			const client = new Client(manager, "test", {
+				log: false,
+				password: "foo",
+				sessions: {},
+				clientSettings: {jumptoEabled: false, filterdmsEnabled: false, coloredNicks: false},
+				networks: [],
+			});
+
+			expect(client.config.clientSettings).to.deep.equal({
+				jumpToEnabled: false,
+				filterDmsEnabled: false,
+				coloredNicks: false,
+				searchEnabled: false,
+			});
+
+			client.save.flush();
+			sinon.assert.calledOnceWithExactly(saveUser, client);
+		});
+
+		it("should not save the user when no setting was renamed", function () {
+			const manager = new ClientManager();
+			const saveUser = sinon.stub(manager, "saveUser");
+			const client = new Client(manager, "test", {
+				log: false,
+				password: "foo",
+				sessions: {},
+				clientSettings: {jumpToEnabled: false},
+				networks: [],
+			});
+
+			client.save.flush();
+			sinon.assert.notCalled(saveUser);
+		});
 	});
 });

@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import {URL} from "url";
-import mime from "mime-types";
+import mime from "mime";
 
 import log from "../../log.js";
 import Config from "../../config.js";
@@ -170,7 +170,7 @@ function parseHtmlMedia(
 				return;
 			}
 
-			$(`meta[property="og:${type}:type"]`).each(function (this: cheerio.Element, i: number) {
+			$(`meta[property="og:${type}:type"]`).each(function (i: number) {
 				const mimeType = $(this).attr("content");
 
 				if (!mimeType) {
@@ -341,7 +341,7 @@ function handlePreview(
 
 	// Get the correct file extension for the provided content-type
 	// This is done to prevent user-input being stored in the file name (extension)
-	const extension = mime.extension(res.type);
+	const extension = mime.getExtension(res.type);
 
 	if (!extension) {
 		// For link previews, drop the thumbnail

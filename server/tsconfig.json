@@ -10,9 +10,6 @@
     "../package.json",
     "../webpack.config.mjs"
   ] /* If no 'files' or 'include' property is present in a tsconfig.json, the compiler defaults to including all files in the containing directory and subdirectories except those specified by 'exclude'. When a 'files' property is specified, only those files and those specified by 'include' are included. */,
-  "ts-node": {
-    "files": true
-  },
   "compilerOptions": {
     "noEmit": false /* Disable emitting file from a compilation. See more: https://www.typescriptlang.org/tsconfig#noEmit */,
     // TODO: Remove eventually

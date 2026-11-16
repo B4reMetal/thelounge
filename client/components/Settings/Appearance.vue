@@ -162,17 +162,17 @@
 			</label>
 			<label class="opt">
 				<input
-					:checked="store.state.settings.jumptoEabled"
+					:checked="store.state.settings.jumpToEnabled"
 					type="checkbox"
-					name="jumptoEabled"
+					name="jumpToEnabled"
 				/>
 				Enable "Jump to" in sidebar
 			</label>
 			<label class="opt">
 				<input
-					:checked="store.state.settings.filterdmsEnabled"
+					:checked="store.state.settings.filterDmsEnabled"
 					type="checkbox"
-					name="filterdmsEnabled"
+					name="filterDmsEnabled"
 				/>
 				Enable "Filter DMs" in DM section
 			</label>

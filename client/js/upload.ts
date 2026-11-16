@@ -2,7 +2,7 @@ import {update as updateCursor} from "undate";
 
 import socket from "./socket";
 import {store} from "./store";
-import { UploadProviders } from "../../shared/upload-providers";
+import {UploadProviders} from "../../shared/upload-providers";
 
 class Uploader {
 	xhr: XMLHttpRequest | null = null;
@@ -227,27 +227,17 @@ class Uploader {
 	}
 
 	performUpload(token: string, file: File) {
-		const uploadEndpoint = store.state.serverConfiguration?.allowFileUploadBackendSelection ? store.state.settings.uploadTo : "new";
-		const uploadProvider = UploadProviders.find(b => b.id === uploadEndpoint)!;
-
-		// if not using local uploads set the token to user given api token
-		if (uploadProvider.id !== "new") {
-			token = token ? token : `_${uploadEndpoint}_`
-
-			if (uploadProvider.requiresURL) {
-				// if needing to pass url for upload prepend it to the token
-				token = `${btoa(store.state.settings.uploadURL)}_|_${store.state.settings.uploadToken}`;
-			} else {
-				token = store.state.settings.uploadToken;
-			}
-		}
+		const uploadEndpoint = store.state.serverConfiguration?.allowFileUploadBackendSelection
+			? store.state.settings.uploadTo
+			: "new";
+		const uploadProvider = UploadProviders.find((b) => b.id === uploadEndpoint)!;
 
 		// The "custom" TTL option has no fixed duration of its own; substitute
 		// the user-entered seconds value the server should actually use.
 		const ttl =
 			store.state.settings.uploadTTL === "custom"
-				? store.state.settings.uploadTTLCustom ?? ""
-				: store.state.settings.uploadTTL ?? "";
+				? (store.state.settings.uploadTTLCustom ?? "")
+				: (store.state.settings.uploadTTL ?? "");
 
 		this.xhr = new XMLHttpRequest();
 
@@ -288,10 +278,20 @@ class Uploader {
 		};
 
 		const formData = new FormData();
+
+		// External provider credentials are sent as form fields rather than in the
+		// URL so they do not end up in access logs. They must be appended before the
+		// file, as the server validates them before accepting the file data.
+		if (uploadProvider.id !== "new") {
+			formData.append("apiKey", store.state.settings.uploadToken ?? "");
+
+			if (uploadProvider.requiresURL) {
+				formData.append("uploadURL", store.state.settings.uploadURL ?? "");
+			}
+		}
+
 		formData.append("file", file);
 
-		// The token may contain characters that are not path-safe (e.g. "/" from the
-		// base64 encoded upload URL), so it must be encoded as a single path segment
 		this.xhr.open(
 			"POST",
 			`uploads/${uploadEndpoint}/${encodeURIComponent(token)}${

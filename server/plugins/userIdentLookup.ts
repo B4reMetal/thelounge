@@ -8,10 +8,23 @@ type Pending = {
 	// Cleared when the user asks for a WHOIS of the same nick themself
 	// meanwhile, so that reply is shown as usual
 	silent: boolean;
+	// Whether the "No such nick" error of the WHOIS has been hidden already
+	noSuchNickHidden: boolean;
 };
 
-// How long a WHOIS sent from here may take to be answered
-const timeoutMs = 5000;
+// How long a WHOIS sent from here may take to be answered (the client gives
+// up after 8 s), and how long a reply that comes later is still kept out of
+// the client
+const defaultTimeouts = {answerMs: 5000, lateReplyMs: 30000};
+
+type TimedOut = {timer: NodeJS.Timeout; noSuchNickHidden: boolean};
+
+// Lookups that may wait for a WHOIS at once on one network
+const maxPendingPerNetwork = 5;
+
+// What could be a nick: no spaces, commas, control characters or wildcards,
+// which would make the WHOIS about something else
+const nickLike = /^[^\s,*?!@#&:\p{Cc}][^\s,*?!@\p{Cc}]{0,63}$/u;
 
 /**
  * Finds out the ident and hostname of a user on a network, for tracker profile
@@ -24,16 +37,27 @@ const timeoutMs = 5000;
  */
 class UserIdentLookup {
 	private pending = new Map<string, Pending>();
+	// Lookups that gave up waiting, whose reply may still come
+	private timedOut = new Map<string, TimedOut>();
+
+	constructor(private timeouts = defaultTimeouts) {}
 
 	private key(network: Network, nick: string) {
 		return `${network.uuid}:${nick.toLowerCase()}`;
 	}
 
 	lookup(network: Network, nick: string): Promise<UserIdent | null> {
+		if (!nickLike.test(nick)) {
+			return Promise.resolve(null);
+		}
+
 		for (const chan of network.channels) {
 			const user = chan.findUser(nick);
 
-			if (user?.ident && user.hostname) {
+			// Profile addresses take a numeric user id. Anything else may be
+			// stale (an ident from before the user identified to the network),
+			// so it is asked for again.
+			if (user?.ident && user.hostname && /^\d+$/.test(user.ident)) {
 				return Promise.resolve({ident: user.ident, hostname: user.hostname});
 			}
 		}
@@ -51,10 +75,21 @@ class UserIdentLookup {
 				return;
 			}
 
+			const networkPrefix = this.key(network, "");
+			const pendingHere = Array.from(this.pending.keys()).filter((k) =>
+				k.startsWith(networkPrefix)
+			).length;
+
+			if (pendingHere >= maxPendingPerNetwork) {
+				resolve(null);
+				return;
+			}
+
 			this.pending.set(key, {
-				timer: setTimeout(() => this.finish(key, null), timeoutMs),
+				timer: setTimeout(() => this.timeOut(key), this.timeouts.answerMs),
 				resolve: [resolve],
 				silent: true,
+				noSuchNickHidden: false,
 			});
 
 			network.irc!.raw("WHOIS", nick);
@@ -71,6 +106,26 @@ class UserIdentLookup {
 		if (waiting) {
 			waiting.silent = false;
 		}
+
+		this.forgetTimedOut(this.key(network, nick));
+	}
+
+	/**
+	 * Takes a "No such nick" error. Returns true if it must not be shown: a
+	 * WHOIS of a nick that doesn't exist is answered with one ahead of the
+	 * end of the reply, which belongs to the lookup as well. Only one is
+	 * taken per lookup, others are about something else.
+	 */
+	hideNoSuchNick(network: Network, nick: string) {
+		const key = this.key(network, nick);
+		const waiting = this.pending.get(key) ?? this.timedOut.get(key);
+
+		if (!waiting || ("silent" in waiting && !waiting.silent) || waiting.noSuchNickHidden) {
+			return false;
+		}
+
+		waiting.noSuchNickHidden = true;
+		return true;
 	}
 
 	/**
@@ -79,12 +134,24 @@ class UserIdentLookup {
 	 */
 	handleWhois(
 		network: Network,
-		data: {nick: string; error?: boolean; ident?: unknown; hostname?: unknown}
+		data: {
+			nick: string;
+			error?: boolean;
+			whowas?: boolean;
+			ident?: unknown;
+			hostname?: unknown;
+		}
 	): boolean {
+		// Not the answer to a WHOIS, and about someone who may be gone
+		if (data.whowas) {
+			return false;
+		}
+
 		const key = this.key(network, data.nick);
 		const waiting = this.pending.get(key);
+		const late = !waiting && this.timedOut.has(key);
 
-		if (!waiting) {
+		if (!waiting && !late) {
 			return false;
 		}
 
@@ -105,9 +172,38 @@ class UserIdentLookup {
 			}
 		}
 
+		if (late) {
+			// Answers a lookup that gave up, nobody asked to see it
+			this.forgetTimedOut(key);
+			return true;
+		}
+
 		this.finish(key, known);
 
-		return waiting.silent;
+		return waiting!.silent;
+	}
+
+	private timeOut(key: string) {
+		const waiting = this.pending.get(key);
+
+		if (waiting?.silent) {
+			this.forgetTimedOut(key);
+			this.timedOut.set(key, {
+				timer: setTimeout(() => this.timedOut.delete(key), this.timeouts.lateReplyMs),
+				noSuchNickHidden: waiting.noSuchNickHidden,
+			});
+		}
+
+		this.finish(key, null);
+	}
+
+	private forgetTimedOut(key: string) {
+		const timedOut = this.timedOut.get(key);
+
+		if (timedOut) {
+			clearTimeout(timedOut.timer);
+			this.timedOut.delete(key);
+		}
 	}
 
 	private finish(key: string, result: UserIdent | null) {
@@ -128,6 +224,10 @@ class UserIdentLookup {
 	clear() {
 		for (const key of Array.from(this.pending.keys())) {
 			this.finish(key, null);
+		}
+
+		for (const key of Array.from(this.timedOut.keys())) {
+			this.forgetTimedOut(key);
 		}
 	}
 }

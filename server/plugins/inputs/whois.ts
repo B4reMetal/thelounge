@@ -1,9 +1,20 @@
 import {PluginInputHandler} from "./index.js";
 
-const commands = ["whois"];
+const commands = ["whois", "whowas"];
 
 const input: PluginInputHandler = function (network, chan, cmd, args) {
 	const {irc} = network;
+
+	if (cmd === "whowas") {
+		// Its reply can't be told apart from a WHOIS reply for the same nick
+		// a tracker profile lookup may be waiting for: show that one, too
+		if (args.length > 0) {
+			this.userIdentLookup.shownWhoisRequested(network, args[0]);
+		}
+
+		irc.raw(`${cmd} ${args.join(" ")}`);
+		return;
+	}
 
 	if (args.length > 0) {
 		this.userIdentLookup.shownWhoisRequested(network, args[args.length - 1]);

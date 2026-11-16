@@ -16,6 +16,18 @@ type Waiting = {
 const waiting = new Map<string, Waiting>();
 const key = (target: number, nick: string) => `${target}:${nick.toLowerCase()}`;
 
+/**
+ * Shows `text` for a few seconds, unless something else is shown meanwhile
+ */
+export function showNotice(text: string) {
+	store.commit("currentUserVisibleError", text);
+	setTimeout(() => {
+		if (store.state.currentUserVisibleError === text) {
+			store.commit("currentUserVisibleError", null);
+		}
+	}, 4000);
+}
+
 function finish(id: string, user?: {ident?: string; hostname?: string}) {
 	const lookup = waiting.get(id);
 
@@ -30,18 +42,16 @@ function finish(id: string, user?: {ident?: string; hostname?: string}) {
 
 	if (!url) {
 		lookup.tab?.close();
-		store.commit(
-			"currentUserVisibleError",
-			`Could not find a tracker profile for ${lookup.nick}.`
-		);
-		setTimeout(() => store.commit("currentUserVisibleError", null), 4000);
+		showNotice(`Could not find a tracker profile for ${lookup.nick}.`);
 		return;
 	}
 
 	if (lookup.tab && !lookup.tab.closed) {
 		lookup.tab.location.replace(url);
 	} else {
-		openInNewTab(url);
+		// The tab was blocked as a pop-up or closed meanwhile. Opening one
+		// now, away from the click, would be blocked as well.
+		showNotice(`Tracker profile of ${lookup.nick}: ${url}`);
 	}
 }
 

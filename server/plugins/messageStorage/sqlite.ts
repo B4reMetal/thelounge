@@ -295,7 +295,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 	async _run_migrations(dbVersion: number) {
 		log.info(
-			`sqlite messages schema version is out of date (${dbVersion} < ${currentSchemaVersion}). Running migrations, this can take a while on a large history.`
+			`sqlite messages schema version for ${this.userName} is out of date (${dbVersion} < ${currentSchemaVersion}). Running migrations, this can take a while on a large history.`
 		);
 
 		const to_execute = necessaryMigrations(dbVersion);
@@ -330,6 +330,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			return; // nothing to do
 		}
 
+		const started = Date.now();
 		await this.serialize_run("BEGIN EXCLUSIVE TRANSACTION");
 
 		try {
@@ -346,12 +347,23 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		}
 
 		await this.serialize_run("COMMIT");
-		await this.serialize_run("VACUUM");
+
+		// No VACUUM here: it rewrites the whole file, which on a large history
+		// takes as long as the migration itself and needs that much free disk
+		// space again, while none of the migrations free up space worth
+		// reclaiming. `thelounge storage vacuum` does it on demand.
+		if (version !== 0) {
+			log.info(
+				`sqlite migrations for ${this.userName} finished in ${((Date.now() - started) / 1000).toFixed(1)}s`
+			);
+		}
 	}
 
 	// helper method that vacuums the db, meant to be used by migration related cli commands
 	async vacuum() {
 		await this.serialize_run("VACUUM");
+		// The write-ahead log keeps the size it grew to; give that back too
+		this.database.pragma("wal_checkpoint(TRUNCATE)");
 	}
 
 	async close() {

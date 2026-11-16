@@ -1,6 +1,9 @@
+import fs from "fs";
+import path from "path";
 import log from "../log.js";
 import {Command} from "commander";
 import ClientManager from "../clientManager.js";
+import Config from "../config.js";
 import Utils from "./utils.js";
 import SqliteMessageStorage from "../plugins/messageStorage/sqlite.js";
 import {StorageCleaner} from "../storageCleaner.js";
@@ -32,6 +35,71 @@ program
 			process.exit(1);
 		});
 	});
+
+program
+	.command("vacuum")
+	.argument("[username]", "vacuum a specific user only, all if not provided")
+	.description(
+		"Rewrite message databases to give unused space back to the disk. Stop The Lounge first."
+	)
+	.on("--help", Utils.extraHelp)
+	.action(function (user) {
+		runVacuum(user).catch((err) => {
+			log.error(err.toString());
+			process.exit(1);
+		});
+	});
+
+async function runVacuum(user?: string) {
+	const manager = new ClientManager();
+	const users = manager.getUsers();
+
+	if (user && !users.includes(user)) {
+		throw new Error(`invalid user ${user}`);
+	}
+
+	log.warn(
+		"Make sure The Lounge is stopped. Vacuuming needs as much free disk space as the database takes."
+	);
+
+	for (const name of user ? [user] : users) {
+		await vacuumUser(manager, name);
+	}
+}
+
+async function vacuumUser(manager: ClientManager, user: string) {
+	const dbPath = path.join(Config.getUserLogsPath(), `${user}.sqlite3`);
+
+	// Don't create a database just to vacuum it
+	if (!fs.existsSync(dbPath)) {
+		log.info("no message database for", user, ". Skipping");
+		return;
+	}
+
+	if (!isUserLogEnabled(manager, user)) {
+		log.info("logging disabled for user", user, ". Skipping");
+		return;
+	}
+
+	const size = () =>
+		[dbPath, `${dbPath}-wal`]
+			.filter((f) => fs.existsSync(f))
+			.reduce((sum, f) => sum + fs.statSync(f).size, 0);
+	const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+
+	const before = size();
+	const started = Date.now();
+	log.info(`vacuuming ${user} (${mb(before)}), this might take a while`);
+
+	const sqlite = new SqliteMessageStorage(user);
+	await sqlite.enable(); // also runs any pending migrations
+	await sqlite.vacuum();
+	await sqlite.close();
+
+	log.info(
+		`vacuumed ${user}: ${mb(before)} -> ${mb(size())} in ${((Date.now() - started) / 1000).toFixed(1)}s`
+	);
+}
 
 async function runMigrations(user?: string) {
 	const manager = new ClientManager();

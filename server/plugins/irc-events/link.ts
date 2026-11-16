@@ -10,6 +10,7 @@ import storage from "../storage.js";
 import Client from "../../client.js";
 import Chan from "../../models/chan.js";
 import Msg from "../../models/msg.js";
+import outgoingFetch from "../outgoingFetch.js";
 
 type FetchRequest = {
 	data: Buffer;
@@ -437,8 +438,7 @@ function fetch(uri: string, headers: Record<string, string>) {
 				signal: AbortSignal.timeout(prefetchTimeout || 5000),
 			};
 
-			globalThis
-				.fetch(uri, requestOptions)
+			outgoingFetch(uri, requestOptions)
 				.then(async (response) => {
 					contentLength = parseInt(response.headers.get("content-length") || "0", 10);
 					contentType = response.headers.get("content-type") || undefined;

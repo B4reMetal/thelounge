@@ -3,13 +3,11 @@
 ARG NODE_VERSION=22
 
 # Shared base: corepack provides the yarn version pinned in package.json, git
-# is needed because irc-framework is a git dependency (fetched over HTTPS, the
-# lockfile records it as git+ssh).
+# is needed because irc-framework is a git dependency.
 FROM node:${NODE_VERSION}-bookworm-slim AS base
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends git ca-certificates \
 	&& rm -rf /var/lib/apt/lists/* \
-	&& git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" \
 	&& corepack enable
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 WORKDIR /app

@@ -25,10 +25,6 @@ jobs:
       - name: Enable corepack
         run: corepack enable
 
-      # yarn.lock resolves irc-framework via git+ssh; runners have no SSH key
-      - name: Fetch GitHub deps over HTTPS
-        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-
       - name: Install
         run: yarn install --immutable
 

@@ -550,6 +550,7 @@ class Network {
 			channels: this.channels.map((channel) =>
 				channel.getFilteredClone(lastActiveChannel, lastMessage)
 			),
+			torrentSites: Config.getTorrentSitesForHost(this.host),
 		};
 	}
 

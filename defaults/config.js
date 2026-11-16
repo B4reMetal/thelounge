@@ -384,6 +384,197 @@ export default {
 	// This value is set to `false` by default.
 	useHexIp: false,
 
+	// ## Tracker profile links
+	//
+	// When the enhanced context menu is enabled, right-clicking a user on a
+	// network listed in `torrentSites` offers a "Tracker Profile" link that
+	// opens their profile on that tracker's website.
+	//
+	// ### `defaultTorrentSiteInfo`
+	//
+	// Defaults applied to every entry in `torrentSites`. `profileUrl` is the path
+	// on the tracker that the nick is appended to, so links look like
+	// `https://<domain><profileUrl><nick>`.
+	defaultTorrentSiteInfo: {
+		profileUrl: "/users/",
+	},
+
+	// ### `torrentSites`
+	//
+	// A list of trackers. Each entry has:
+	//
+	// - `abbreviation` and `name`: how the tracker is labelled.
+	// - `host`: the IRC server hostname, matched case-insensitively against the
+	//   network's server address.
+	// - `domain`: the tracker's website, e.g. `"seedpool.org"`.
+	// - `channels` (optional): only offer the link in these channels. Use this
+	//   when several trackers share one IRC network. Omit to allow all channels.
+	// - `profileUrl` (optional): overrides `defaultTorrentSiteInfo.profileUrl`.
+	// - `disabled` (optional): set to `true` to skip the entry.
+	//
+	// For example:
+	//
+	// ```js
+	// torrentSites: [
+	//   {
+	//     abbreviation: "EX",
+	//     name: "Example",
+	//     host: "irc.example.org",
+	//     domain: "example.org",
+	//     channels: ["#example"],
+	//   },
+	// ],
+	// ```
+	//
+	// Setting your own list replaces this one entirely. Set to `null` to disable.
+	torrentSites: [
+		{
+			abbreviation: "ULCX",
+			name: "Upload.cx",
+			host: "irc.upload.cx",
+			domain: "upload.cx",
+			channels: ["#Announce", "#ULCX", "#Support"],
+		},
+		{
+			abbreviation: "RFX",
+			name: "Reelflix",
+			host: "irc.reelflix.cc",
+			domain: "reelflix.cc",
+		},
+		{
+			abbreviation: "SP",
+			name: "Seedpool",
+			host: "irc.seedpool.org",
+			domain: "seedpool.org",
+		},
+		{
+			abbreviation: "HHD",
+			name: "HomieHelpdesk",
+			host: "irc.homiehelpdesk.net",
+			domain: "homiehelpdesk.net",
+		},
+		{
+			abbreviation: "DP",
+			name: "DarkPeers",
+			host: "irc.darkpeers.org",
+			domain: "darkpeers.org",
+		},
+		{
+			abbreviation: "BLU",
+			name: "Blutopia",
+			host: "irc.p2p-network.net",
+			domain: "blutopia.cc",
+			channels: ["#blutopia"],
+		},
+		{
+			abbreviation: "RAS",
+			name: "Rastastugan",
+			host: "irc.rizon.net",
+			domain: "rastastugan.org",
+			channels: ["#rastastugan"],
+		},
+		{
+			abbreviation: "LST",
+			name: "LST",
+			host: "irc.lst.gg",
+			domain: "lst.gg",
+		},
+		{
+			abbreviation: "LUME",
+			name: "Luminarr",
+			host: "irc.luminarr.me",
+			domain: "luminarr.me",
+		},
+		{
+			abbreviation: "STC",
+			name: "Skip The Commercials",
+			host: "irc.skipthecommercials.xyz",
+			domain: "skipthecommercials.xyz",
+		},
+		{
+			abbreviation: "RHD",
+			name: "Rocket HD",
+			host: "irc.rocket-hd.cc",
+			domain: "rocket-hd.cc",
+		},
+		{
+			abbreviation: "A4K",
+			name: "Aura4K",
+			host: "irc.aura4k.net",
+			domain: "aura4k.net",
+		},
+		{
+			abbreviation: "MNS",
+			name: "MidnightScene",
+			host: "irc.midnightscene.cc",
+			domain: "midnightscene.cc",
+		},
+		{
+			abbreviation: "OE+",
+			name: "OnlyEncodes+",
+			host: "irc.onlyencodes.cc",
+			domain: "onlyencodes.cc",
+		},
+		{
+			abbreviation: "IHD",
+			name: "InfinityHD",
+			host: "irc.infinityhd.net",
+			domain: "infinityhd.net",
+		},
+		{
+			abbreviation: "YUS",
+			name: "Yu-Scene",
+			host: "irc.yu-scene.net",
+			domain: "yu-scene.net",
+		},
+		{
+			abbreviation: "ZNTH",
+			name: "Zenith",
+			host: "irc.znth.cx",
+			domain: "znth.cx",
+		},
+		{
+			disabled: true, // Profile URLs aren't based on the username
+			abbreviation: "ANT",
+			name: "Anthelion",
+			host: "irc.nebulance.io",
+			domain: "anthelion.me",
+			channels: [
+				"#ant",
+				"#ant-announce",
+				"#ant-help",
+				"#ant-disabled",
+				"#ant-invites",
+				"#ant-shout",
+			],
+		},
+		{
+			disabled: true, // Profile URLs aren't based on the username
+			abbreviation: "RED",
+			name: "Redacted",
+			host: "irc.scratch-network.net",
+			domain: "redacted.sh",
+			channels: [
+				"#redacted",
+				"#red-PU",
+				"#red-lounge",
+				"#unfiltered",
+				"#red-TM",
+				"#red-dev",
+				"#red-etm",
+				"#red-ptm",
+				"#red-metadata",
+			],
+		},
+		{
+			disabled: true, // Profile URLs aren't based on the username
+			abbreviation: "MAM",
+			name: "MyAnonamouse",
+			host: "irc.myanonamouse.net",
+			domain: "myanonamouse.net",
+		},
+	],
+
 	// ## WEBIRC support
 	//
 	// When enabled, The Lounge will pass the connecting user's host and IP to the

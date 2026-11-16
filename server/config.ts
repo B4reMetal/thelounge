@@ -11,6 +11,11 @@ import log from "./log.js";
 import Helper from "./helper.js";
 import Utils from "./command-line/utils.js";
 import Network from "./models/network.js";
+import type {
+	DefaultTorrentSiteInfo,
+	TorrentSite,
+	TorrentSiteInfo,
+} from "../shared/types/network.js";
 
 export type WebIRC = {
 	[key: string]: unknown;
@@ -118,6 +123,8 @@ export type ConfigType = {
 	massEventDetection: MassEventDetection;
 	useHexIp: boolean;
 	webirc?: WebIRC;
+	defaultTorrentSiteInfo: DefaultTorrentSiteInfo;
+	torrentSites: TorrentSite[] | null;
 	identd: Identd;
 	oidentd?: string;
 	ldap: Ldap;
@@ -130,6 +137,50 @@ import defaultConfig from "../defaults/config.js";
 class Config {
 	values = {..._.cloneDeep(defaultConfig), themeColor: ""} as unknown as ConfigType;
 	#homePath = "";
+
+	/**
+	 * Trackers configured for an IRC server host (case-insensitive), with
+	 * defaults applied and profileUrl made absolute. Disabled sites are skipped.
+	 */
+	getTorrentSitesForHost(host: string | undefined): TorrentSiteInfo[] | undefined {
+		const sites = this.values.torrentSites;
+
+		if (!host || !Array.isArray(sites)) {
+			return undefined;
+		}
+
+		const wantedHost = host.toLowerCase();
+		const defaultPath = this.values.defaultTorrentSiteInfo?.profileUrl ?? "/users/";
+		const result: TorrentSiteInfo[] = [];
+
+		for (const site of sites) {
+			if (
+				!site ||
+				site.disabled ||
+				typeof site.host !== "string" ||
+				typeof site.domain !== "string" ||
+				site.host.toLowerCase() !== wantedHost
+			) {
+				continue;
+			}
+
+			let profilePath = site.profileUrl ?? defaultPath;
+
+			if (!profilePath.startsWith("/")) {
+				profilePath = "/" + profilePath;
+			}
+
+			result.push({
+				abbreviation: site.abbreviation,
+				name: site.name,
+				domain: site.domain,
+				channels: Array.isArray(site.channels) ? site.channels : undefined,
+				profileUrl: `https://${site.domain}${profilePath}`,
+			});
+		}
+
+		return result.length > 0 ? result : undefined;
+	}
 
 	getHomePath() {
 		return this.#homePath;

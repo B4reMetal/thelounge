@@ -6,6 +6,7 @@ import {TypedStore} from "../store";
 import useCloseChannel from "../hooks/use-close-channel";
 import {ChanType} from "../../../shared/types/chan";
 import { openInNewTab } from "./openInNewTab";
+import {getTrackerProfileUrl} from "./trackerProfile";
 
 type BaseContextMenuItem = {
 	label: string;
@@ -148,6 +149,19 @@ export function generateChannelContextMenu(
 
 	// Add menu items for queries
 	if (channel.type === ChanType.QUERY) {
+		const trackerProfileUrl = getTrackerProfileUrl(network, channel, channel.name);
+
+		if (trackerProfileUrl) {
+			items.push({
+				label: "Tracker Profile",
+				type: "item",
+				class: "action-open",
+				action() {
+					openInNewTab(trackerProfileUrl);
+				},
+			});
+		}
+
 		items.push(
 			{
 				label: "User information",
@@ -307,6 +321,30 @@ export function generateUserContextMenu(
 		? channel.users.find((u) => u.nick === network.nick) || {}
 		: {};
 
+	// "Tracker Profile" for networks with a matching entry in config.js `torrentSites`
+	const trackerProfileEntry = (): ContextMenuItem[] => {
+		if (!store.state.settings.enhancedContextMenuEnabled) {
+			return [];
+		}
+
+		const url = getTrackerProfileUrl(network, channel, user.nick);
+
+		if (!url) {
+			return [];
+		}
+
+		return [
+			{
+				label: "Tracker Profile",
+				type: "item",
+				class: "action-open",
+				action() {
+					openInNewTab(url);
+				},
+			},
+		];
+	};
+
 	const userContextMenuEntrys = () => {
 		const defualt = {
 			label: user.nick,
@@ -329,14 +367,6 @@ export function generateUserContextMenu(
 					});
 				},
 			};
-			const customTrackerProfile = {
-				label: `Tracker Profile`,
-				type: "item",
-				class: "action-open",
-				action (){
-					openInNewTab(`https://brr.red/${user.nick}`);
-				},
-			};
 			const userGroup = network.channels.find(c => c.users.find(u => u.nick === user.nick))?.groups?.find(g => g.users.includes(user.nick))?.name ?? 'Offline';
 
 			return [
@@ -350,11 +380,11 @@ export function generateUserContextMenu(
 					type: "divider",
 				},
 				customInspect,
-				customTrackerProfile
+				...trackerProfileEntry(),
 			] as ContextMenuItem[];
 		}
 
-		return [ defualt ];
+		return [defualt, ...trackerProfileEntry()] as ContextMenuItem[];
 	}
 
 	// Extra entries for enhanced context menu

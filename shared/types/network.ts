@@ -41,7 +41,8 @@ export type SharedNetwork = {
 };
 
 // A tracker whose users chat on an IRC network. Used to build "Tracker Profile"
-// links in the user context menu.
+// links in the user context menu, and to limit shoutbox bridge matchers to the
+// tracker's own network and channels.
 export type TorrentSite = {
 	disabled?: boolean;
 	abbreviation: string;
@@ -54,6 +55,9 @@ export type TorrentSite = {
 	channels?: string[];
 	// Path on the tracker that the nick is appended to. Defaults to defaultTorrentSiteInfo.profileUrl.
 	profileUrl?: string;
+	// Set to false when profile URLs aren't based on the nick. The site is still
+	// sent to the client (for shoutbox bridge scoping), without a profile link.
+	profileLink?: boolean;
 };
 
 export type DefaultTorrentSiteInfo = {
@@ -61,11 +65,12 @@ export type DefaultTorrentSiteInfo = {
 };
 
 // A configured site after defaults are applied. profileUrl is absolute
-// (https://domain/path/), ready for an encoded nick to be appended.
+// (https://domain/path/), ready for an encoded nick to be appended, or null
+// when the site has `profileLink: false`.
 export type TorrentSiteInfo = {
 	abbreviation: string;
 	name: string;
 	domain: string;
 	channels?: string[];
-	profileUrl: string;
+	profileUrl: string | null;
 };

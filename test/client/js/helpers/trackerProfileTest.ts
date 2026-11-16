@@ -63,4 +63,14 @@ describe("getTrackerProfileUrl", function () {
 			"https://seedpool.org/users/%5Ba%5Db%7Cc"
 		);
 	});
+
+	it("skips sites without a profile link", function () {
+		const noLink: TorrentSiteInfo = {...seedpool, profileUrl: null};
+		expect(getTrackerProfileUrl({torrentSites: [noLink]}, channel("#sp"), "bob")).to.equal(
+			null
+		);
+		expect(
+			getTrackerProfileUrl({torrentSites: [noLink, blutopia]}, channel("#blutopia"), "bob")
+		).to.equal("https://blutopia.cc/users/bob");
+	});
 });

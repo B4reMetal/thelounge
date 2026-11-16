@@ -3,6 +3,7 @@ import semver from "semver";
 import log from "../log.js";
 import pkg from "../../package.json" with {type: "json"};
 import ClientManager from "../clientManager.js";
+import outgoingFetch from "./outgoingFetch.js";
 import {SharedChangelogData} from "../../shared/types/changelog.js";
 
 const TIME_TO_LIVE = 15 * 60 * 1000; // 15 minutes, in milliseconds
@@ -54,7 +55,7 @@ async function fetch() {
 			signal: AbortSignal.timeout(15 * 1000),
 		};
 
-		const response = await globalThis.fetch(RELEASES_API_URL, fetchOptions);
+		const response = await outgoingFetch(RELEASES_API_URL, fetchOptions);
 
 		if (response.status !== 200) {
 			return versions;

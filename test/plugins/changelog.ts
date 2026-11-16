@@ -1,6 +1,7 @@
 import {expect} from "chai";
 import sinon from "sinon";
 import log from "../../server/log.js";
+import Config from "../../server/config.js";
 import pkg from "../../package.json" with {type: "json"};
 import changelog, {
 	RELEASES_PAGE_URL,
@@ -91,8 +92,12 @@ describe("changelog", function () {
 	describe("fetch", function () {
 		let fetchStub: sinon.SinonStub;
 		let errorStub: sinon.SinonStub;
+		let bind: string | undefined;
 
 		beforeEach(function () {
+			// A bound request goes through undici's fetch, not the stubbed global one
+			bind = Config.values.bind;
+			Config.values.bind = undefined;
 			updateVersions("[]").expiresAt = -1;
 			fetchStub = sinon.stub(globalThis, "fetch");
 			errorStub = sinon.stub(log, "error");
@@ -101,6 +106,7 @@ describe("changelog", function () {
 		afterEach(function () {
 			fetchStub.restore();
 			errorStub.restore();
+			Config.values.bind = bind;
 			updateVersions("[]").expiresAt = -1;
 		});
 

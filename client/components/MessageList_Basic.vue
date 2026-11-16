@@ -147,6 +147,11 @@ export default defineComponent({
 				target: props.channel.id,
 				lastId: lastMessage,
 				condensed: store.state.settings.statusMessages !== "shown",
+				// Lets the server keep paging from storage once this
+				// message is no longer in its memory
+				beforeTime: props.channel.messages.length
+					? new Date(props.channel.messages[0].time).getTime()
+					: undefined,
 			});
 		};
 

@@ -161,6 +161,16 @@ class Client {
 			for (const messageStorage of this.messageStorage) {
 				messageStorage.enable().catch((e) => log.error(e));
 			}
+
+			// Message ids restart with the server while stored messages keep
+			// theirs. History is only read when a channel is opened, so move
+			// the counter past everything stored before the first new message.
+			this.messageProvider
+				?.getMaxMessageId()
+				.then((maxId) => {
+					this.idMsg = Math.max(this.idMsg, maxId + 1);
+				})
+				.catch((e) => log.error(e));
 		}
 
 		if (!_.isPlainObject(this.config.sessions)) {
@@ -205,12 +215,11 @@ class Client {
 			log.info(`User ${colors.bold(this.name)} loaded`);
 
 			// Networks are created instantly, but to reduce server load on startup
-			// We randomize the IRC connections and channel log loading
+			// We randomize the IRC connections.
+			// Channel history is not read here, see Client.open()
 			let delay = this.manager.clients.length * 500;
 			this.networks.forEach((network) => {
 				setTimeout(() => {
-					network.channels.forEach((channel) => channel.loadMessages(this, network));
-
 					if (!network.userDisconnected && network.irc) {
 						network.irc.connect();
 					}
@@ -575,7 +584,7 @@ class Client {
 		);
 	}
 
-	more(data) {
+	async more(data: {target: number; lastId: number; condensed: boolean; beforeTime?: number}) {
 		const target = this.find(data.target);
 
 		if (!target) {
@@ -585,13 +594,10 @@ class Client {
 		const chan = target.chan;
 		let messages: Msg[] = [];
 		let index = 0;
+		let hasMore = false;
 
-		const enhancedSearch = Boolean(this.config.clientSettings.searchEnabled && this.config.clientSettings.enableEnhancedSearch)
-
-		// Use batch sizes for "more" requests, batch sizes are based on enableEnhancedSearch setting
-		// When enableEnhancedSearch = true send upto 10000 messages at a time
-		const batchSize = enhancedSearch ? 1000 : 100;
-		const maxBatchSize =  enhancedSearch ? 10000 : 1000;
+		// Batch sizes for "more" requests depend on the enableEnhancedSearch setting
+		const {batchSize, maxBatchSize} = this.historyBatchSizes();
 
 		// If client requests -1, send last batch of messages
 		if (data.lastId < 0) {
@@ -627,12 +633,88 @@ class Client {
 			}
 
 			messages = chan.messages.slice(startIndex, index);
+			hasMore = startIndex > 0;
+		}
+
+		// Memory holds only the newest part of a channel. Once it runs out,
+		// keep paging straight from storage. Those rows are not cached here:
+		// with the (network, channel, time) index a page costs well under a
+		// millisecond, and caching would let scrollback grow without bound.
+		if (!hasMore && this.messageProvider?.canProvideMessages() && chan.isLoggable()) {
+			try {
+				const stored = await this.loadOlderFromStorage(target, messages, data.beforeTime);
+
+				messages = stored.messages.concat(messages);
+				hasMore = stored.hasMore;
+			} catch (err) {
+				log.error(`Failed to load older messages from storage: ${String(err)}`);
+			}
 		}
 
 		return {
 			chan: chan.id,
 			messages: messages,
 			totalMessages: chan.messages.length,
+			hasMore: hasMore,
+		};
+	}
+
+	private async loadOlderFromStorage(
+		target: {network: Network; chan: Chan},
+		inMemoryPage: Msg[],
+		clientOldestTime?: number
+	): Promise<{messages: Msg[]; hasMore: boolean}> {
+		const {network, chan} = target;
+		const provider = this.messageProvider!;
+		const pageSize = this.historyBatchSizes().batchSize;
+
+		// Continue from the oldest message we know the client has or is
+		// about to get: this response's page, else whatever the client says
+		// its oldest is, else the start of what memory holds.
+		const oldest = inMemoryPage[0] || (clientOldestTime ? undefined : chan.messages[0]);
+		const anchor = oldest ? new Date(oldest.time).getTime() : (clientOldestTime ?? Date.now());
+
+		const wanted = pageSize - inMemoryPage.length;
+
+		if (wanted <= 0) {
+			// The page is already full, only find out whether anything older exists
+			const older = await provider.getMessagesBefore(network.uuid, chan.name, anchor, 1);
+
+			return {messages: [], hasMore: older.length > 0};
+		}
+
+		// Rows sharing the anchor's millisecond come back too and are dropped
+		// below, so leave room for them
+		const limit = wanted + 50;
+		const rows = await provider.getMessagesBefore(
+			network.uuid,
+			chan.name,
+			anchor,
+			limit,
+			true
+		);
+
+		const known = new Set(chan.messages.map((m) => m.id));
+		const fresh = rows.filter((m) => !known.has(m.id));
+
+		return {
+			messages: fresh,
+			// A full read means storage has more. Requiring something new
+			// keeps a client from asking for the same page forever.
+			hasMore: rows.length >= limit && fresh.length > 0,
+		};
+	}
+
+	private historyBatchSizes() {
+		const enhancedSearch = Boolean(
+			this.config.clientSettings.searchEnabled &&
+				this.config.clientSettings.enableEnhancedSearch
+		);
+
+		// When enableEnhancedSearch = true send upto 10000 messages at a time
+		return {
+			batchSize: enhancedSearch ? 1000 : 100,
+			maxBatchSize: enhancedSearch ? 10000 : 1000,
 		};
 	}
 
@@ -731,6 +813,9 @@ class Client {
 			targetNetChan.chan.firstUnread =
 				targetNetChan.chan.messages[targetNetChan.chan.messages.length - 1].id;
 		}
+
+		// First open of a channel this session reads its stored history
+		targetNetChan.chan.loadMessages(this, targetNetChan.network, true);
 
 		attachedClient.openChannel = targetNetChan.chan.id;
 		this.lastActiveChannel = targetNetChan.chan.id;

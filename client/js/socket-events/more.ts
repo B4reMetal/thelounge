@@ -2,6 +2,7 @@ import {nextTick} from "vue";
 
 import socket from "../socket";
 import {store} from "../store";
+import {prependMessages} from "../chan";
 import {MessageType} from "../../../shared/types/msg";
 
 socket.on("more", async (data) => {
@@ -20,9 +21,8 @@ socket.on("more", async (data) => {
 			.reverse()
 			.slice(0, 100 - channel.inputHistory.length)
 	);
-	channel.moreHistoryAvailable =
-		data.totalMessages > channel.messages.length + data.messages.length;
-	channel.messages.unshift(...data.messages);
+	channel.moreHistoryAvailable = data.hasMore;
+	prependMessages(channel, data.messages);
 
 	await nextTick();
 	channel.historyLoading = false;

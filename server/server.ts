@@ -237,6 +237,11 @@ export default async function (
 					serveClient: false,
 					transports: Config.values.transports,
 					pingTimeout: 60000,
+					// History batches are large, repetitive JSON (about 5x
+					// smaller deflated). Small frequent frames are left alone.
+					perMessageDeflate: {
+						threshold: 1024,
+					},
 				});
 
 				sockets.on("connect", (socket) => {
@@ -516,9 +521,9 @@ function initializeClient(
 		}
 	});
 
-	socket.on("more", (data) => {
+	socket.on("more", async (data) => {
 		if (_.isPlainObject(data)) {
-			const history = client.more(data);
+			const history = await client.more(data);
 
 			if (history !== null) {
 				socket.emit("more", history);
@@ -673,7 +678,7 @@ function initializeClient(
 	// so there's no need to handle msg:preview:toggle
 	if (!Config.values.public) {
 		socket.on("msg:preview:toggle", (data) => {
-			if (_.isPlainObject(data)) {
+			if (!_.isPlainObject(data)) {
 				return;
 			}
 

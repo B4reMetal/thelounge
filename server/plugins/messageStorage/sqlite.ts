@@ -14,7 +14,7 @@ import {SearchQuery, SearchResponse} from "../../../shared/types/storage.js";
 type Migration = {version: number; stmts: string[]};
 type Rollback = {version: number; rollback_forbidden?: boolean; stmts: string[]};
 
-export const currentSchemaVersion = 1703322560448; // use `new Date().getTime()`
+export const currentSchemaVersion = 1794816000000; // use `new Date().getTime()`
 
 // Desired schema, adapt to the newest version and add migrations to the array below
 const schema = [
@@ -31,7 +31,9 @@ const schema = [
         step INTEGER NOT NULL,
         statement TEXT NOT NULL
     )`,
-	"CREATE INDEX network_channel ON messages (network, channel)",
+	// Covers both "all rows of a channel" lookups and time-ordered history paging.
+	// Without the trailing time column every history query has to sort the whole channel.
+	"CREATE INDEX network_channel_time ON messages (network, channel, time)",
 	"CREATE INDEX time ON messages (time)",
 	"CREATE INDEX msg_type_idx on messages (type)", // needed for efficient storageCleaner queries
 ];
@@ -71,6 +73,13 @@ export const migrations: Migration[] = [
 		version: 1703322560448,
 		stmts: ["CREATE INDEX msg_type_idx on messages (type)"],
 	},
+	{
+		version: 1794816000000,
+		stmts: [
+			"CREATE INDEX network_channel_time ON messages (network, channel, time)",
+			"DROP INDEX network_channel", // strict prefix of the index above
+		],
+	},
 ];
 
 // down migrations need to restore the state of the prior version.
@@ -87,6 +96,13 @@ export const rollbacks: Rollback[] = [
 	{
 		version: 1703322560448,
 		stmts: ["drop INDEX msg_type_idx"],
+	},
+	{
+		version: 1794816000000,
+		stmts: [
+			"CREATE INDEX network_channel ON messages (network, channel)",
+			"DROP INDEX network_channel_time",
+		],
 	},
 ];
 
@@ -223,6 +239,14 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 	async run_pragmas() {
 		await this.serialize_run("PRAGMA foreign_keys = ON;");
+
+		// better-sqlite3 is synchronous, so every commit blocks the event loop
+		// for as long as the fsyncs take. With the default rollback journal
+		// that is two or more fsyncs per batch flush; WAL with NORMAL needs
+		// none on commit and stays consistent across crashes (at worst the
+		// last few commits are lost on power failure).
+		this.database.pragma("journal_mode = WAL");
+		this.database.pragma("synchronous = NORMAL");
 	}
 
 	async run_migrations() {
@@ -500,7 +524,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 	async getMessages(
 		network: Network,
 		channel: Channel,
-		nextID: () => number
+		ensureIdAbove: (maxId: number) => void
 	): Promise<Message[]> {
 		await this.initDone.promise;
 
@@ -516,7 +540,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 		// Select id from SQLite to use as the canonical message ID
 		const rows = await this.serialize_fetchall(
-			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? ORDER BY time DESC LIMIT ?",
+			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? ORDER BY time DESC, id DESC LIMIT ?",
 			network.uuid,
 			channel.name.toLowerCase(),
 			limit
@@ -549,10 +573,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		});
 
 		// Ensure client.idMsg is higher than any loaded message ID
-		// by calling nextID until it surpasses maxId
-		while (nextID() <= maxId) {
-			// Keep incrementing until we're past the max
-		}
+		ensureIdAbove(maxId);
 
 		return messages;
 	}
@@ -637,7 +658,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 		const maxResults = 100;
 
-		select += " ORDER BY time DESC LIMIT ? OFFSET ? ";
+		select += " ORDER BY time DESC, id DESC LIMIT ? OFFSET ? ";
 		params.push(maxResults);
 		params.push(query.offset);
 
@@ -697,7 +718,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		await this.flushBatch();
 
 		const rows = await this.serialize_fetchall(
-			"SELECT msg, type, time FROM messages WHERE network = ? AND channel = ? ORDER BY time DESC LIMIT ?",
+			"SELECT msg, type, time FROM messages WHERE network = ? AND channel = ? ORDER BY time DESC, id DESC LIMIT ?",
 			networkUuid,
 			channelName.toLowerCase(),
 			limit
@@ -713,13 +734,50 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 	}
 
 	/**
-	 * Get messages before a specific timestamp (for lazy loading)
+	 * Highest message id this database knows about, looking at both the row id
+	 * and the id stored in the message JSON. Ids are handed out by an in-memory
+	 * counter that restarts with the server, so the counter has to be moved past
+	 * this before any new message is created, otherwise new ids collide with
+	 * stored ones once history is loaded lazily.
+	 */
+	async getMaxMessageId(): Promise<number> {
+		await this.initDone.promise;
+
+		if (!this.isEnabled) {
+			return 0;
+		}
+
+		await this.flushBatch();
+
+		// Ids only grow over time, so the newest rows carry the highest ones
+		const rows = await this.serialize_fetchall(
+			"SELECT id, json_extract(msg, '$.id') AS msgId FROM messages ORDER BY id DESC LIMIT 100"
+		);
+
+		let maxId = 0;
+
+		for (const row of rows) {
+			const r = row as Record<string, unknown>;
+			maxId = Math.max(maxId, r.id as number, typeof r.msgId === "number" ? r.msgId : 0);
+		}
+
+		return maxId;
+	}
+
+	/**
+	 * Get messages at or before a specific timestamp, oldest first.
+	 *
+	 * With `inclusive` the rows sharing the anchor's exact millisecond are
+	 * returned as well; callers drop the ones they already hold by id. Paging
+	 * with a strict "<" would silently skip same-millisecond siblings of the
+	 * anchor forever.
 	 */
 	async getMessagesBefore(
 		networkUuid: string,
 		channelName: string,
 		beforeTime: number,
-		limit: number
+		limit: number,
+		inclusive = false
 	): Promise<Message[]> {
 		await this.initDone.promise;
 
@@ -727,8 +785,13 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			return [];
 		}
 
+		// Flush any pending batched writes before reading
+		await this.flushBatch();
+
 		const rows = await this.serialize_fetchall(
-			"SELECT msg, type, time FROM messages WHERE network = ? AND channel = ? AND time < ? ORDER BY time DESC LIMIT ?",
+			`SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time ${
+				inclusive ? "<=" : "<"
+			} ? ORDER BY time DESC, id DESC LIMIT ?`,
 			networkUuid,
 			channelName.toLowerCase(),
 			beforeTime,
@@ -740,6 +803,12 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			const msg = JSON.parse(r.msg as string);
 			msg.time = r.time;
 			msg.type = r.type;
+
+			// Use stored ID from JSON if available, fall back to SQLite row ID
+			if (typeof msg.id !== "number") {
+				msg.id = r.id as number;
+			}
+
 			return new Msg(msg);
 		});
 	}
@@ -764,7 +833,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 		// Get messages before the target time
 		const beforeRows = await this.serialize_fetchall(
-			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time <= ? ORDER BY time DESC LIMIT ?",
+			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time <= ? ORDER BY time DESC, id DESC LIMIT ?",
 			networkUuid,
 			channelName.toLowerCase(),
 			targetTime,
@@ -773,7 +842,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 		// Get messages after the target time
 		const afterRows = await this.serialize_fetchall(
-			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time > ? ORDER BY time ASC LIMIT ?",
+			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time > ? ORDER BY time ASC, id ASC LIMIT ?",
 			networkUuid,
 			channelName.toLowerCase(),
 			targetTime,

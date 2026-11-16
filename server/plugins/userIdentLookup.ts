@@ -33,7 +33,10 @@ class UserIdentLookup {
 		for (const chan of network.channels) {
 			const user = chan.findUser(nick);
 
-			if (user?.ident && user.hostname) {
+			// Profile addresses take a numeric user id. Anything else may be
+			// stale (an ident from before the user identified to the network),
+			// so it is asked for again.
+			if (user?.ident && user.hostname && /^\d+$/.test(user.ident)) {
 				return Promise.resolve({ident: user.ident, hostname: user.hostname});
 			}
 		}

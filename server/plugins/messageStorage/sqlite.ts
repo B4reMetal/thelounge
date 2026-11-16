@@ -519,7 +519,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 		if (version > currentSchemaVersion) {
 			throw new Error(
-				`sqlite messages schema version is higher than expected (${version} > ${currentSchemaVersion}). Is NexusIRC out of date?`
+				`sqlite messages schema version is higher than expected (${version} > ${currentSchemaVersion}). Is The Lounge out of date?`
 			);
 		} else if (version === currentSchemaVersion) {
 			return; // nothing to do

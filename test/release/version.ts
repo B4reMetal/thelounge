@@ -1,0 +1,130 @@
+import {expect} from "chai";
+import semver from "semver";
+// @ts-expect-error plain ESM script without type declarations
+import * as V from "../../scripts/release/version.mjs";
+// @ts-expect-error plain ESM script without type declarations
+import * as N from "../../scripts/release/notes.mjs";
+
+const at = (d: string) => new Date(`${d}T12:00:00Z`);
+// Every stock tag shape that exists in the inherited history
+const stock = ["v1.0.0", "v2.0.0-pre.1", "v3.0.0-rc.6", "v4.4.3", "v4.5.2", "v4.6.0-pre.2"];
+
+describe("release version scheme", function () {
+	it("ignores stock tags and starts at YYYY.M.0", function () {
+		const r = V.nextVersion({tags: stock, now: at("2026-11-16")});
+		expect(r).to.include({
+			version: "2026.11.0",
+			tag: "v2026.11.0",
+			latest: true,
+			previousTag: "",
+		});
+	});
+
+	it("sorts above every stock version, as the semver package does", function () {
+		for (const s of stock) {
+			expect(semver.gt("2026.1.0", s.slice(1))).to.equal(true);
+		}
+
+		const list = [
+			"2026.11.0",
+			"2026.11.1-rc.1",
+			"2026.11.1-rc.10",
+			"2026.11.1-rc.2",
+			"2026.12.0",
+			"2026.11.10",
+		];
+		expect([...list].sort(V.compare)).to.deep.equal([...list].sort(semver.compare));
+	});
+
+	it("bumps the patch within a month and starts a new line in a new month", function () {
+		const tags = [...stock, "v2026.11.0"];
+		expect(V.nextVersion({tags, now: at("2026-11-30")}).version).to.equal("2026.11.1");
+		expect(V.nextVersion({tags, now: at("2026-12-01")}).version).to.equal("2026.12.0");
+		expect(V.nextVersion({tags, bump: "patch", now: at("2027-02-01")}).version).to.equal(
+			"2026.11.1"
+		);
+	});
+
+	it("numbers release candidates and finalises them", function () {
+		const tags = ["v2026.11.0", "v2026.11.1-rc.1"];
+		const rc = V.nextVersion({tags, prerelease: true, now: at("2026-11-20")});
+		expect(rc).to.include({
+			version: "2026.11.1-rc.2",
+			prerelease: true,
+			latest: false,
+			previousTag: "v2026.11.1-rc.1",
+		});
+		const final = V.nextVersion({tags, now: at("2026-11-20")});
+		expect(final).to.include({version: "2026.11.1", latest: true, previousTag: "v2026.11.0"});
+	});
+
+	it("does not move latest for a fix to an older line", function () {
+		const r = V.nextVersion({tags: ["v2026.11.0", "v2026.12.0"], explicit: "v2026.11.1"});
+		expect(r).to.include({latest: false, lineLatest: true, exists: false});
+		expect(V.nextVersion({tags: ["v2026.11.0"], explicit: "2026.11.0"}).exists).to.equal(true);
+	});
+
+	it("rejects versions outside the scheme", function () {
+		for (const bad of [
+			"4.4.3-hori.1",
+			"2026.01.0",
+			"2026.13.0",
+			"2026.11.0+x",
+			"2026.11.0-beta.1",
+		]) {
+			expect(() => V.nextVersion({tags: [], explicit: bad}), bad).to.throw();
+		}
+	});
+
+	it("computes image tags per channel", function () {
+		const sha = "0123456789abcdef";
+		expect(V.imageTags({channel: "edge", sha})).to.deep.equal(["edge", "sha-0123456"]);
+		expect(
+			V.imageTags({
+				channel: "release",
+				version: "2026.11.1",
+				sha,
+				latest: true,
+				lineLatest: true,
+			})
+		).to.deep.equal(["2026.11.1", "sha-0123456", "2026.11", "latest"]);
+		expect(V.imageTags({channel: "release", version: "2026.11.1", sha})).to.deep.equal([
+			"2026.11.1",
+			"sha-0123456",
+		]);
+		expect(V.imageTags({channel: "prerelease", version: "2026.12.0-rc.1", sha})).to.deep.equal([
+			"2026.12.0-rc.1",
+			"next",
+			"sha-0123456",
+		]);
+		expect(V.imageTags({channel: "none"})).to.deep.equal([]);
+		expect(() => V.imageTags({channel: "release", version: "2026.12.0-rc.1", sha})).to.throw();
+	});
+});
+
+describe("release notes", function () {
+	it("groups merged branches by prefix and skips bump commits", function () {
+		const body = N.render({
+			version: "2026.11.0",
+			image: "img",
+			storageChanged: true,
+			commits: [
+				{
+					subject: "Merge pull request #14 from someone/perf/fast",
+					body: "\nMake it fast\n",
+				},
+				{
+					subject: "Merge pull request #15 from someone/fix/thing",
+					body: "Fix @someone's thing, see a/b#3",
+				},
+				{subject: "Release v2026.10.0", body: ""},
+				{subject: "Fix /list paging (#21)", body: ""},
+			],
+		});
+		expect(body).to.include("## Performance\n\n- Make it fast");
+		expect(body).to.include("- Fix `@someone`'s thing, see `a/b#3`");
+		expect(body).to.include("## Other changes\n\n- Fix /list paging\n");
+		expect(body).to.include("[!WARNING]");
+		expect(body).not.to.include("Release v2026");
+	});
+});

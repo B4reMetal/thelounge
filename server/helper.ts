@@ -38,7 +38,14 @@ export default Helper;
 function getVersion() {
 	const gitCommit = getGitCommit();
 	const version = `v${pkg.version}`;
-	return gitCommit ? `source (${gitCommit} / ${version})` : version;
+
+	if (gitCommit) {
+		return `source (${gitCommit} / ${version})`;
+	}
+
+	// Docker images have no .git; the build records the commit instead
+	const buildCommit = process.env.THELOUNGE_BUILD_COMMIT?.slice(0, 7);
+	return buildCommit ? `${version} (${buildCommit})` : version;
 }
 
 function getVersionNumber() {

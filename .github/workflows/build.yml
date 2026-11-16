@@ -3,10 +3,11 @@ name: Build
 permissions:
   contents: read
 
+# Releases (versioned image tags and :latest) are cut by cut-release.yml; this
+# workflow checks pull requests and publishes master as :edge.
 on:
   push:
     branches: [master]
-    tags: ["v*"]
   pull_request:
 
 # A new push to a pull request cancels its older, still running checks
@@ -15,154 +16,17 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-
-      # package.json pins yarn 4 via "packageManager"; corepack provides it
-      - name: Enable corepack
-        run: corepack enable
-
-      - name: Install
-        run: yarn install --immutable
-
-      - name: Build
-        run: yarn build
-        env:
-          NODE_ENV: production
-
-      - name: Test
-        run: yarn test:mocha
-
-  # Docker image on ghcr.io. Each architecture builds on a native runner, in
-  # parallel with the tests (no emulation, which made arm64 take many times
-  # longer). Pull requests stop there, as a check that the Dockerfile builds.
-  image:
-    strategy:
-      matrix:
-        include:
-          - platform: linux/amd64
-            runner: ubuntu-latest
-          - platform: linux/arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-
+  # Tests and per-architecture image builds run in parallel, as before.
+  # Pull requests stop at checking that the image builds; master pushes
+  # publish :edge and :sha-<short>.
+  pipeline:
+    uses: ./.github/workflows/pipeline.yml
     permissions:
       contents: read
       packages: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Names
-        run: |
-          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
-          platform=${{ matrix.platform }}
-          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to ghcr.io
-        if: github.event_name == 'push'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Labels
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE }}
-
-      # Pushed untagged, by digest; the publish job tags the combined image
-      - name: Build
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: ${{ matrix.platform }}
-          labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'push' }}
-          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_PAIR }}
-
-      - name: Save digest
-        if: github.event_name == 'push'
-        run: |
-          mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
-
-      - name: Upload digest
-        if: github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: digests-${{ env.PLATFORM_PAIR }}
-          path: /tmp/digests/*
-          retention-days: 1
-
-  # Tags the amd64 + arm64 images as one, once the tests have passed too.
-  # Pushes to master update :latest, tags vX.Y.Z publish :X.Y.Z and :X.Y,
-  # and every push gets :sha-<short>.
-  publish:
-    needs: [build, image]
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Names
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
-
-      - name: Download digests
-        uses: actions/download-artifact@v4
-        with:
-          path: /tmp/digests
-          pattern: digests-*
-          merge-multiple: true
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to ghcr.io
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Image tags
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-
-      - name: Tag the multi-platform image
-        working-directory: /tmp/digests
-        run: |
-          # Word splitting is wanted: one "-t tag" and one digest per item
-          # shellcheck disable=SC2046
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
-
-      - name: Show the result
-        run: docker buildx imagetools inspect "${{ env.IMAGE }}:${{ steps.meta.outputs.version }}"
+      id-token: write
+      attestations: write
+    with:
+      ref: ${{ github.sha }}
+      push: ${{ github.event_name == 'push' }}
+      channel: ${{ github.event_name == 'push' && 'edge' || 'none' }}

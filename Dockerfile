@@ -1,10 +1,13 @@
 # syntax=docker/dockerfile:1
 
 ARG NODE_VERSION=22
+# CI passes the base pinned by digest (node:22-bookworm-slim@sha256:...) and
+# records that digest in the image labels; the weekly refresh compares it.
+ARG BASE_IMAGE=node:${NODE_VERSION}-bookworm-slim
 
 # Shared base: corepack provides the yarn version pinned in package.json, git
 # is needed because irc-framework is a git dependency.
-FROM node:${NODE_VERSION}-bookworm-slim AS base
+FROM ${BASE_IMAGE} AS base
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends git ca-certificates \
 	&& rm -rf /var/lib/apt/lists/* \
@@ -18,7 +21,17 @@ FROM --platform=$BUILDPLATFORM base AS build
 COPY package.json yarn.lock .yarnrc.yml ./
 RUN yarn install --immutable
 COPY . .
-RUN NODE_ENV=production yarn build
+# Release builds pass the version: it replaces the one in package.json, which
+# the server and the client bundle read. GIT_COMMIT is reported next to it
+# (the image has no .git to ask). Declared here so they do not invalidate the
+# dependency layers above.
+ARG VERSION=""
+ARG GIT_COMMIT=""
+RUN if [ -n "$VERSION" ]; then \
+		sed -i -E '0,/"version": "[^"]*"/s//"version": "'"$VERSION"'"/' package.json \
+		&& grep -q '"version": "'"$VERSION"'"' package.json; \
+	fi \
+	&& NODE_ENV=production THELOUNGE_BUILD_COMMIT="$GIT_COMMIT" yarn build
 
 # Runtime dependencies for the target platform (better-sqlite3 is native).
 FROM base AS deps
@@ -26,7 +39,7 @@ COPY package.json yarn.lock .yarnrc.yml ./
 RUN yarn workspaces focus --all --production \
 	&& yarn cache clean --all
 
-FROM node:${NODE_VERSION}-bookworm-slim
+FROM ${BASE_IMAGE}
 ENV NODE_ENV=production \
 	THELOUNGE_HOME=/var/opt/thelounge
 WORKDIR /app
@@ -36,6 +49,10 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/public ./public
 COPY --from=build /app/client/index.html.tpl ./client/index.html.tpl
 COPY --from=build /app/index.js /app/package.json /app/.thelounge_home ./
+COPY LICENSE ./
+
+ARG GIT_COMMIT=""
+ENV THELOUNGE_BUILD_COMMIT=${GIT_COMMIT}
 
 # Runs as uid 1000 with data in /var/opt/thelounge, like the official image,
 # unless PUID/PGID or --user say otherwise (see docs/DOCKER.md). Group 0 may

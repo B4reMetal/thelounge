@@ -130,22 +130,16 @@ export default defineComponent({
 				return;
 			}
 
-			let lastMessage = -1;
-
-			// Find the id of first message that isn't showInActive
+			// Find the first message that isn't showInActive
 			// If showInActive is set, this message is actually in another channel
-			for (const message of props.channel.messages) {
-				if (!message.showInActive) {
-					lastMessage = message.id;
-					break;
-				}
-			}
+			const lastMessage = props.channel.messages.find((message) => !message.showInActive);
 
 			props.channel.historyLoading = true;
 
 			socket.emit("more", {
 				target: props.channel.id,
-				lastId: lastMessage,
+				lastId: lastMessage ? lastMessage.id : -1,
+				lastTime: lastMessage ? new Date(lastMessage.time).getTime() : undefined,
 				condensed: store.state.settings.statusMessages !== "shown",
 				// Lets the server keep paging from storage once this
 				// message is no longer in its memory

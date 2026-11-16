@@ -172,6 +172,9 @@ interface ClientToServerEvents {
 	more: EventHandler<{
 		target: number;
 		lastId: number;
+		// Time of the message `lastId` refers to. Ids are not unique across
+		// a channel's history, id and time together are
+		lastTime?: number;
 		condensed: boolean;
 		// Time of the oldest message the client holds, used to page from
 		// storage once the server no longer has that message in memory

@@ -186,6 +186,47 @@ describe("History paging", function () {
 		expect(chan.messages).to.have.lengthOf(150);
 	});
 
+	it("never sends more than a page from storage", async function () {
+		const {chan, network, client} = setup(400);
+
+		chan.loadMessages(client, network as any, true);
+		await settle();
+
+		// memory holds 251..400, so this page comes from storage alone
+		const page = await client.more({
+			target: chan.id,
+			lastId: 251,
+			lastTime: 251 * 1000,
+			condensed: false,
+			beforeTime: 251 * 1000,
+		});
+
+		expect(page!.messages.map((m) => m.id)).to.deep.equal(
+			Array.from({length: 100}, (_, i) => i + 151)
+		);
+		expect(page!.hasMore).to.equal(true);
+	});
+
+	it("finds the message to page from by id and time", async function () {
+		const {chan, network, client} = setup(400);
+
+		chan.loadMessages(client, network as any, true);
+		await settle();
+
+		// an older message that shares its id with a newer one in memory
+		chan.messages[20].id = chan.messages[120].id;
+
+		const page = await client.more({
+			target: chan.id,
+			lastId: chan.messages[120].id,
+			lastTime: chan.messages[120].time.getTime(),
+			condensed: false,
+		});
+
+		expect(page!.messages).to.have.lengthOf(100);
+		expect(page!.messages[99]).to.equal(chan.messages[119]);
+	});
+
 	it("reports no more history when memory holds everything", async function () {
 		const {chan, network, client} = setup(60);
 

@@ -135,7 +135,7 @@ class Uploader {
 	}
 
 	static routeUploadFile(this: void, req: Request, res: Response) {
-		let busboyInstance: busboy | null | undefined;
+		let busboyInstance: InstanceType<typeof busboy> | null | undefined;
 		let uploadUrl: string | URL;
 		let randomName: string;
 		let originalFilename: string;

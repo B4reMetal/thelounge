@@ -523,7 +523,21 @@ function initializeClient(
 	});
 
 	socket.on("more", async (data) => {
-		if (_.isPlainObject(data)) {
+		if (_.isPlainObject(data) && typeof data.target === "number") {
+			if (!Number.isFinite(data.lastId)) {
+				return;
+			}
+
+			// Only used as a time anchor for stored history
+			if (data.beforeTime !== undefined && !Number.isFinite(data.beforeTime)) {
+				delete data.beforeTime;
+			}
+
+			// Tells apart messages sharing lastId, matched by id alone without it
+			if (data.lastTime !== undefined && !Number.isFinite(data.lastTime)) {
+				delete data.lastTime;
+			}
+
 			const history = await client.more(data);
 
 			if (history !== null) {
@@ -883,11 +897,30 @@ function initializeClient(
 		});
 
 		socket.on("search", async (query) => {
+			// The storage search calls string methods on these; a bad value
+			// would reject the promise, and nothing handles that rejection
+			if (
+				!_.isPlainObject(query) ||
+				typeof query.searchTerm !== "string" ||
+				typeof query.networkUuid !== "string" ||
+				typeof query.channelName !== "string" ||
+				!Number.isInteger(query.offset) ||
+				query.offset < 0
+			) {
+				return;
+			}
+
 			const results = await client.search(query);
 			socket.emit("search:results", results);
 		});
 
-		socket.on("mute:change", ({target, setMutedTo}) => {
+		socket.on("mute:change", (data) => {
+			if (!_.isPlainObject(data) || typeof data.target !== "number") {
+				return;
+			}
+
+			const target = data.target;
+			const setMutedTo = Boolean(data.setMutedTo);
 			const networkAndChan = client.find(target);
 
 			if (!networkAndChan) {
@@ -919,7 +952,16 @@ function initializeClient(
 			client.save();
 		});
 
-		socket.on("pin:change", ({target, setPinnedTo}) => {
+		socket.on("pin:change", (data) => {
+			if (
+				!_.isPlainObject(data) ||
+				typeof data.target !== "number" ||
+				typeof data.setPinnedTo !== "boolean"
+			) {
+				return;
+			}
+
+			const {target, setPinnedTo} = data;
 			const networkAndChan = client.find(target);
 
 			if (!networkAndChan) {

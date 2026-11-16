@@ -6,6 +6,7 @@ import {store as globalStore, TypedStore} from "../store";
 import useCloseChannel from "../hooks/use-close-channel";
 import {ChanType} from "../../../shared/types/chan";
 import {hasTrackerProfile, openTrackerProfile} from "./openTrackerProfile";
+import groupSlug from "./groupSlug";
 
 type BaseContextMenuItem = {
 	label: string;
@@ -373,7 +374,7 @@ export function generateUserContextMenu(
 				{
 					label: userGroup,
 					type: "item",
-					class: `group-${userGroup.toLowerCase()}`,
+					class: `group-${groupSlug(userGroup)}`,
 					action () {},
 				},
 				{

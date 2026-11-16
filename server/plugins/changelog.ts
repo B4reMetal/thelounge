@@ -1,4 +1,5 @@
 import colors from "chalk";
+import semver from "semver";
 import log from "../log.js";
 import pkg from "../../package.json" with {type: "json"};
 import ClientManager from "../clientManager.js";
@@ -6,6 +7,14 @@ import outgoingFetch from "./outgoingFetch.js";
 import {SharedChangelogData} from "../../shared/types/changelog.js";
 
 const TIME_TO_LIVE = 15 * 60 * 1000; // 15 minutes, in milliseconds
+
+// This fork is versioned and released independently of the stock project, so
+// update checks and release links must use this fork's own GitHub releases.
+// A stock release would lack this fork's features and cannot open a database
+// this fork has upgraded.
+export const RELEASES_REPOSITORY = "fHori/thelounge";
+export const RELEASES_PAGE_URL = `https://github.com/${RELEASES_REPOSITORY}/releases`;
+const RELEASES_API_URL = `https://api.github.com/repos/${RELEASES_REPOSITORY}/releases`;
 
 let updateCheckTimeout: NodeJS.Timeout | null = null;
 
@@ -22,7 +31,7 @@ const versions: SharedChangelogData = {
 		prerelease: false,
 		version: `v${pkg.version}`,
 		changelog: undefined,
-		url: "", // TODO: properly init
+		url: RELEASES_PAGE_URL,
 	},
 	expiresAt: -1,
 	latest: undefined,
@@ -30,8 +39,6 @@ const versions: SharedChangelogData = {
 };
 
 async function fetch() {
-	return Promise.resolve(versions);
-
 	const time = Date.now();
 
 	// Serving information from cache
@@ -43,14 +50,12 @@ async function fetch() {
 		const fetchOptions: RequestInit = {
 			headers: {
 				Accept: "application/vnd.github.v3.html", // Request rendered markdown
-				"User-Agent": pkg.name + "; +" + pkg.repository.url, // Identify the client
+				"User-Agent": `${pkg.name}; +https://github.com/${RELEASES_REPOSITORY}`, // Identify the client
 			},
+			signal: AbortSignal.timeout(15 * 1000),
 		};
 
-		const response = await outgoingFetch(
-			"https://api.github.com/repos/thelounge/thelounge/releases",
-			fetchOptions
-		);
+		const response = await outgoingFetch(RELEASES_API_URL, fetchOptions);
 
 		if (response.status !== 200) {
 			return versions;
@@ -69,49 +74,88 @@ async function fetch() {
 	return versions;
 }
 
-function updateVersions(responseBody: string) {
-	let i: number;
-	let release: {tag_name: string; body_html: string; prerelease: boolean; html_url: string};
-	let prerelease = false;
+type GitHubRelease = {
+	tag_name: string;
+	body_html?: string;
+	prerelease: boolean;
+	draft?: boolean;
+	html_url: string;
+};
 
-	const body = JSON.parse(responseBody);
+function isRelease(release: unknown): release is GitHubRelease {
+	if (!release || typeof release !== "object") {
+		return false;
+	}
 
-	// Find the current release among releases on GitHub
-	for (i = 0; i < body.length; i++) {
-		release = body[i];
+	const r = release as Record<string, unknown>;
 
-		if (release.tag_name === versions.current.version) {
-			versions.current.changelog = release.body_html;
-			prerelease = release.prerelease;
+	return (
+		typeof r.tag_name === "string" &&
+		typeof r.html_url === "string" &&
+		typeof r.prerelease === "boolean" &&
+		r.draft !== true
+	);
+}
 
-			break;
+// Exported for tests
+export function updateVersions(responseBody: string): SharedChangelogData {
+	const body: unknown = JSON.parse(responseBody);
+	const releases = Array.isArray(body) ? body.filter(isRelease) : [];
+
+	versions.current.changelog = undefined;
+	versions.current.url = RELEASES_PAGE_URL;
+	versions.latest = undefined;
+	changelog.isUpdateAvailable = false;
+
+	// Find the current release among the releases on GitHub. A fork without
+	// releases (or without a release for this version) is simply up to date.
+	const current = releases.find((release) => release.tag_name === versions.current.version);
+
+	const currentVersion = semver.valid(versions.current.version);
+
+	versions.current.prerelease = current
+		? current.prerelease
+		: Boolean(currentVersion && semver.prerelease(currentVersion));
+
+	if (current) {
+		versions.current.changelog = current.body_html;
+		versions.current.url = current.html_url;
+	}
+
+	if (!currentVersion) {
+		return versions;
+	}
+
+	// Find the newest release that is newer than the current version. Only
+	// offer pre-releases if the current version is a pre-release as well.
+	// Compare versions instead of relying on list order, so an older release
+	// is never presented as an update.
+	for (const release of releases) {
+		const version = semver.valid(release.tag_name);
+
+		if (!version || !semver.gt(version, currentVersion)) {
+			continue;
+		}
+
+		if (release.prerelease && !versions.current.prerelease) {
+			continue;
+		}
+
+		if (!versions.latest || semver.gt(version, versions.latest.version)) {
+			versions.latest = {
+				prerelease: release.prerelease,
+				version: release.tag_name,
+				url: release.html_url,
+			};
 		}
 	}
 
-	// Find the latest release made after the current one if there is one
-	if (i > 0) {
-		for (let j = 0; j < i; j++) {
-			release = body[j];
+	changelog.isUpdateAvailable = Boolean(versions.latest);
 
-			// Find latest release or pre-release if current version is also a pre-release
-			if (!release.prerelease || release.prerelease === prerelease) {
-				changelog.isUpdateAvailable = true;
-
-				versions.latest = {
-					prerelease: release.prerelease,
-					version: release.tag_name,
-					url: release.html_url,
-				};
-
-				break;
-			}
-		}
-	}
+	return versions;
 }
 
 function checkForUpdates(manager: ClientManager) {
-	return;
-
 	fetch()
 		.then((versionData) => {
 			if (!changelog.isUpdateAvailable) {

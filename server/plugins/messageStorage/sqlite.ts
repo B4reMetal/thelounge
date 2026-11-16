@@ -664,7 +664,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
             from rollback_steps
             join migrations on migrations.id=rollback_steps.migration_id
             where version > ?
-            order by version desc, step asc`,
+            order by version desc, step asc, rollback_steps.id asc`,
 			since_version
 		);
 		const result: Rollback[] = [];
@@ -757,8 +757,9 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 				rollback.rollback_forbidden || 0
 			);
 
+			let step = 0;
+
 			for (const stmt of rollback.stmts) {
-				let step = 0;
 				await this.serialize_run(
 					`insert into rollback_steps
                     (migration_id, step, statement)

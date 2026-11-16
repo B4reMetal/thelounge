@@ -102,6 +102,12 @@ class Uploader {
 	): string | undefined {
 		const apiKey = fields.apiKey ?? "";
 
+		// The key is handed to the provider joined to the upload address with
+		// this separator, a key containing it would be cut short there
+		if (apiKey.includes("_|_")) {
+			throw new Error("Invalid API Key");
+		}
+
 		if (uploadProvider.requiresURL) {
 			let parsedURL: URL;
 
@@ -275,6 +281,16 @@ class Uploader {
 			return abortWithError(Error("Upload provider selection is disabled"), 403);
 		}
 
+		// In public mode anyone who opens the page gets an upload token, so a
+		// provider that posts to an address of the visitor's choosing would let
+		// anonymous visitors make this server send requests anywhere
+		if (uploadProvider.requiresURL && Config.values.public) {
+			return abortWithError(
+				Error("This upload provider is not available in public mode"),
+				403
+			);
+		}
+
 		// if the request does not contain any body data, bail out
 		if (req.headers["content-length"] && parseInt(req.headers["content-length"]) < 1) {
 			return abortWithError(Error("Length Required"));
@@ -338,11 +354,26 @@ class Uploader {
 		streamWriter = fs.createWriteStream(destPath);
 		streamWriter.on("error", abortWithError);
 
-		busboyInstance.on("field", (fieldname: string, value: string) => {
-			if (fieldname === "apiKey" || fieldname === "uploadURL") {
+		busboyInstance.on(
+			"field",
+			(
+				fieldname: string,
+				value: string,
+				_nameTruncated: boolean,
+				valueTruncated: boolean
+			) => {
+				if (fieldname !== "apiKey" && fieldname !== "uploadURL") {
+					return;
+				}
+
+				// A value cut off at the size limit must not be used as if it were whole
+				if (valueTruncated) {
+					return abortWithError(Error("Field too long"));
+				}
+
 				fields[fieldname] = value;
 			}
-		});
+		);
 
 		busboyInstance.on(
 			"file",
@@ -385,11 +416,12 @@ class Uploader {
 		if (uploadProvider.id === "new") {
 			// local upload
 			busboyInstance.on("finish", () => {
-				doneCallback();
-
 				if (!uploadUrl) {
-					return res.status(400).json({error: "Missing file"});
+					// also removes the empty file opened for the upload
+					return abortWithError(Error("Missing file"));
 				}
+
+				doneCallback();
 
 				Uploader.writeExpiry(<string>destPath, uploadProvider, ttl);
 

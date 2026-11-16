@@ -21,6 +21,7 @@ describe("Uploader", function () {
 	let fetchStub: sinon.SinonStub;
 	let uploadPathExisted: boolean;
 	let originalBackendSelection: boolean;
+	let originalPublic: boolean;
 
 	// Simulates the authenticated socket and requests a one-time upload token
 	const getUploadToken = () => {
@@ -87,11 +88,14 @@ describe("Uploader", function () {
 	beforeEach(function () {
 		originalBackendSelection = Config.values.allowFileUploadBackendSelection;
 		Config.values.allowFileUploadBackendSelection = true;
+		originalPublic = Config.values.public;
+		Config.values.public = false;
 		fetchStub = sinon.stub(globalThis, "fetch");
 	});
 
 	afterEach(function () {
 		Config.values.allowFileUploadBackendSelection = originalBackendSelection;
+		Config.values.public = originalPublic;
 		fetchStub.restore();
 	});
 
@@ -122,6 +126,35 @@ describe("Uploader", function () {
 		expect(await response.json()).to.deep.equal({
 			error: "Upload provider selection is disabled",
 		});
+		expect(fetchStub.called).to.equal(false);
+	});
+
+	it("should reject providers with a user supplied address in public mode", async function () {
+		Config.values.public = true;
+
+		const response = await upload("rustypaste", getUploadToken(), {
+			uploadURL: "http://127.0.0.1:9/",
+		});
+
+		expect(response.status).to.equal(403);
+		expect(fetchStub.called).to.equal(false);
+	});
+
+	it("should reject a field that was cut off at the size limit", async function () {
+		const response = await upload("imagebb", getUploadToken(), {apiKey: "k".repeat(5000)});
+
+		expect(response.status).to.equal(400);
+		expect(await response.json()).to.deep.equal({error: "Field too long"});
+		expect(fetchStub.called).to.equal(false);
+	});
+
+	it("should reject an api key containing the separator", async function () {
+		const response = await upload("zipline", getUploadToken(), {
+			uploadURL: "http://zipline.example/api/upload",
+			apiKey: "abc_|_def",
+		});
+
+		expect(response.status).to.equal(400);
 		expect(fetchStub.called).to.equal(false);
 	});
 

@@ -1,17 +1,17 @@
 import type {ClientChan, ClientNetwork} from "../types";
 import {ChanType} from "../../../shared/types/chan";
-import type {TorrentSiteInfo} from "../../../shared/types/network";
+import {type TrackerInfo, trackerNickPlaceholder} from "../../../shared/types/network";
+
+type Network = Pick<ClientNetwork, "trackers">;
+type Channel = Pick<ClientChan, "type" | "name"> | undefined;
 
 /**
- * Whether a tracker configured for this network (see `torrentSites` in
- * config.js) applies in `channel`. Sites with a channel list only apply in
- * those channels; sites without one apply everywhere on the network.
+ * Whether a tracker on this network (see `trackers` in config.js) applies in
+ * `channel`. A tracker with a channel list only applies in those channels;
+ * one without applies everywhere on the network.
  */
-export function torrentSiteAppliesTo(
-	site: Pick<TorrentSiteInfo, "channels">,
-	channel: Pick<ClientChan, "type" | "name"> | undefined
-): boolean {
-	if (!site.channels || site.channels.length === 0) {
+export function trackerAppliesTo(tracker: Pick<TrackerInfo, "channels">, channel: Channel) {
+	if (!tracker.channels || tracker.channels.length === 0) {
 		return true;
 	}
 
@@ -20,25 +20,46 @@ export function torrentSiteAppliesTo(
 	}
 
 	const channelName = channel.name.toLowerCase();
-	return site.channels.some((c) => c.toLowerCase() === channelName);
+	return tracker.channels.some((c) => c.toLowerCase() === channelName);
 }
 
 /**
- * Profile URL on the tracker configured for this network (see `torrentSites`
- * in config.js), or null. In a channel, only sites that list that channel (or
- * list no channels) match; elsewhere, only sites without a channel list do.
- * Sites with `profileLink: false` never match.
+ * The tracker with this id (case-insensitive), if it is on this network and
+ * applies in `channel`.
+ */
+export function findTracker(network: Network, channel: Channel, id: string) {
+	const wanted = id.toLowerCase();
+
+	return network.trackers?.find(
+		(t) => t.id.toLowerCase() === wanted && trackerAppliesTo(t, channel)
+	);
+}
+
+/**
+ * Address of `nick`'s profile on a tracker of this network, or null.
+ *
+ * With `trackerId` only that tracker is considered: a message relayed from a
+ * tracker's shoutbox was written by a user of that tracker and no other.
+ * Otherwise it is the first tracker that applies in `channel` and has a
+ * profile address.
  */
 export function getTrackerProfileUrl(
-	network: Pick<ClientNetwork, "torrentSites">,
-	channel: Pick<ClientChan, "type" | "name"> | undefined,
-	nick: string
+	network: Network,
+	channel: Channel,
+	nick: string,
+	trackerId?: string
 ): string | null {
-	if (!network.torrentSites || !nick) {
+	if (!network.trackers || !nick) {
 		return null;
 	}
 
-	const site = network.torrentSites.find((s) => s.profileUrl && torrentSiteAppliesTo(s, channel));
+	const tracker = trackerId
+		? findTracker(network, channel, trackerId)
+		: network.trackers.find((t) => t.profileUrl && trackerAppliesTo(t, channel));
 
-	return site?.profileUrl ? site.profileUrl + encodeURIComponent(nick) : null;
+	if (!tracker?.profileUrl) {
+		return null;
+	}
+
+	return tracker.profileUrl.replaceAll(trackerNickPlaceholder, encodeURIComponent(nick));
 }

@@ -3,19 +3,18 @@ import {parser} from "../../../../client/js/helpers/shoutbox-bridge/parser.js";
 import {matchers} from "../../../../client/js/helpers/shoutbox-bridge/matchers.js";
 import {ChanType} from "../../../../shared/types/chan.js";
 import {MessageType, type SharedMsg} from "../../../../shared/types/msg.js";
-import type {TorrentSiteInfo} from "../../../../shared/types/network.js";
+import type {TrackerInfo} from "../../../../shared/types/network.js";
 
-const site = (abbreviation: string, channels?: string[]): TorrentSiteInfo => ({
-	abbreviation,
-	name: abbreviation,
-	domain: `${abbreviation.toLowerCase()}.example`,
+const site = (id: string, channels?: string[]): TrackerInfo => ({
+	id,
+	name: id,
 	channels,
-	profileUrl: `https://${abbreviation.toLowerCase()}.example/users/`,
+	profileUrl: `https://${id.toLowerCase()}.example/users/{nick}`,
 });
 
-const darkpeers = {torrentSites: [site("DP")]};
-const upload = {torrentSites: [site("ULCX", ["#Announce", "#ULCX", "#Support"])]};
-const otherNetwork = {torrentSites: undefined};
+const darkpeers = {trackers: [site("DP")]};
+const upload = {trackers: [site("ULCX", ["#Announce", "#ULCX", "#Support"])]};
+const otherNetwork = {trackers: undefined};
 
 const channel = (name: string) => ({type: ChanType.CHANNEL, name});
 const query = (name: string) => ({type: ChanType.QUERY, name});
@@ -52,7 +51,7 @@ describe("shoutbox bridge parser", function () {
 	});
 
 	it("still scopes trackers without a profile link", function () {
-		const ant = {torrentSites: [{...site("ANT", ["#ant-shout"]), profileUrl: null}]};
+		const ant = {trackers: [{id: "ANT", name: "Anthelion", channels: ["#ant-shout"]}]};
 		const original = msg("sauron", "\x030 [\x03\x032 SB\x03\x030 ] \x03(admin): hello");
 
 		expect(parser(original, ant, channel("#ant-shout")).from?.nick).to.equal("admin");
@@ -74,17 +73,23 @@ describe("shoutbox bridge parser", function () {
 		expect(result.from?.nick).to.equal("admin");
 	});
 
-	it("only references abbreviations that exist in the default torrentSites", async function () {
+	it("says which tracker a bridged user is from, when the matcher is scoped", function () {
+		const scoped = parser(msg("dp", "[admin] hello"), darkpeers, channel("#darkpeers"));
+		const unscoped = parser(msg("chatbot", "[admin] hello"), otherNetwork, channel("#aither"));
+
+		expect(scoped.from?.tracker).to.equal("DP");
+		expect(unscoped.from?.tracker).to.equal(undefined);
+	});
+
+	it("only references trackers that exist in the default config", async function () {
 		const {default: config} = (await import("../../../../defaults/config.js")) as {
-			default: {torrentSites: Array<{abbreviation: string; disabled?: boolean}>};
+			default: {trackers: Record<string, {disabled?: boolean}>};
 		};
-		const known = new Set(
-			config.torrentSites.filter((s) => !s.disabled).map((s) => s.abbreviation)
-		);
 
 		for (const m of matchers) {
-			if (m.site) {
-				expect(known.has(m.site), `${m.name} -> ${m.site}`).to.equal(true);
+			if (m.tracker) {
+				expect(config.trackers[m.tracker], `${m.name} -> ${m.tracker}`).to.be.an("object");
+				expect(config.trackers[m.tracker].disabled).to.not.equal(true);
 			}
 		}
 	});

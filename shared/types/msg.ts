@@ -43,6 +43,8 @@ export type UserInMessage = Partial<SharedUser> & {
 	mode: string;
 	shoutbox?: boolean;
 	original_nick?: string;
+	// Id of the tracker (config.js `trackers`) a bridged shoutbox user is from
+	tracker?: string;
 };
 
 export type LinkPreview = {

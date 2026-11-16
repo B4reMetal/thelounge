@@ -175,7 +175,8 @@ class Config {
 				name: site.name,
 				domain: site.domain,
 				channels: Array.isArray(site.channels) ? site.channels : undefined,
-				profileUrl: `https://${site.domain}${profilePath}`,
+				profileUrl:
+					site.profileLink === false ? null : `https://${site.domain}${profilePath}`,
 			});
 		}
 

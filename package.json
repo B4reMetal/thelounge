@@ -7,9 +7,9 @@
   "bin": "index.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/thelounge/thelounge.git"
+    "url": "https://github.com/fHori/thelounge.git"
   },
-  "homepage": "https://thelounge.chat/",
+  "homepage": "https://github.com/fHori/thelounge",
   "scripts": {
     "build:client": "webpack",
     "build:server": "tsc --build server/tsconfig.json",

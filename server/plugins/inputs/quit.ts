@@ -8,7 +8,7 @@ const allowDisconnected = true;
 
 const input: PluginInputHandler = function (network, chan, cmd, args) {
 	this.networks = _.without(this.networks, network);
-	network.destroy();
+	network.destroy(this);
 	this.save();
 	this.emit("quit", {
 		network: network.uuid,

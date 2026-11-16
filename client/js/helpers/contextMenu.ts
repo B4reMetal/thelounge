@@ -5,8 +5,7 @@ import {switchToChannel} from "../router";
 import {TypedStore} from "../store";
 import useCloseChannel from "../hooks/use-close-channel";
 import {ChanType} from "../../../shared/types/chan";
-import { openInNewTab } from "./openInNewTab";
-import {getTrackerProfileUrl} from "./trackerProfile";
+import {hasTrackerProfile, openTrackerProfile} from "./openTrackerProfile";
 
 type BaseContextMenuItem = {
 	label: string;
@@ -149,15 +148,13 @@ export function generateChannelContextMenu(
 
 	// Add menu items for queries
 	if (channel.type === ChanType.QUERY) {
-		const trackerProfileUrl = getTrackerProfileUrl(network, channel, channel.name);
-
-		if (trackerProfileUrl) {
+		if (hasTrackerProfile(network, channel, channel.name)) {
 			items.push({
 				label: "Tracker Profile",
 				type: "item",
 				class: "action-open",
 				action() {
-					openInNewTab(trackerProfileUrl);
+					openTrackerProfile(network, channel, channel.name);
 				},
 			});
 		}
@@ -328,9 +325,7 @@ export function generateUserContextMenu(
 			return [];
 		}
 
-		const url = getTrackerProfileUrl(network, channel, user.nick, user.tracker);
-
-		if (!url) {
+		if (!hasTrackerProfile(network, channel, user.nick, user.tracker)) {
 			return [];
 		}
 
@@ -340,7 +335,7 @@ export function generateUserContextMenu(
 				type: "item",
 				class: "action-open",
 				action() {
-					openInNewTab(url);
+					openTrackerProfile(network, channel, user.nick, user.tracker);
 				},
 			},
 		];

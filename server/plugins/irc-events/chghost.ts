@@ -14,6 +14,9 @@ export default <IrcEventHandler>function (irc, network) {
 				return;
 			}
 
+			user.ident = data.new_ident;
+			user.hostname = data.new_hostname;
+
 			const msg = new Msg({
 				time: data.time,
 				type: MessageType.CHGHOST,

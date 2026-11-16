@@ -50,8 +50,12 @@ export type TrackerConfig = {
 	network?: string;
 	// The tracker's channels (case-insensitive). Omit for the whole network.
 	channels?: string[];
-	// Address of a user's profile, with `{nick}` where the nick goes
+	// Address of a user's profile, with `{nick}` where the nick goes, or
+	// `{ident}` for trackers whose IRC server puts the user id in the ident
 	profileUrl?: string;
+	// What the hostname of the tracker's users looks like, `*` for any text.
+	// Only checked for `{ident}` addresses.
+	userHost?: string;
 	disabled?: boolean;
 };
 
@@ -74,7 +78,10 @@ export type TrackerInfo = {
 	channels?: string[];
 	// Absent when the tracker has no usable profile address
 	profileUrl?: string;
+	userHost?: string;
 };
 
 // Placeholder in a tracker's `profileUrl` that the nick is put in place of
 export const trackerNickPlaceholder = "{nick}";
+// Placeholder for the user's ident, on trackers where that is their user id
+export const trackerIdentPlaceholder = "{ident}";

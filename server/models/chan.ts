@@ -347,11 +347,9 @@ class Chan {
 					this.firstUnread = this.messages[this.messages.length - 1].id;
 				}
 
-				const enhancedSearch = Boolean(client.config.clientSettings.searchEnabled && client.config.clientSettings.enableEnhancedSearch)
-
-				// if enhancedSearchEnabled = true send all loaded messages to the client
-				// otherwise only send 100
-				const toSend = enhancedSearch ? messages : messages.slice(-100);
+				// Only the newest page goes to the client, it pages back
+				// through the rest when scrolling up
+				const toSend = messages.slice(-100);
 
 				client.emit("more", {
 					chan: this.id,

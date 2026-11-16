@@ -544,6 +544,54 @@ describe("SQLite Message Storage", function () {
 		expect(row).to.not.equal(undefined);
 	});
 
+	it("should store and return multi-statement rollbacks in order", async function () {
+		const multi = rollbacks.filter((r) => r.stmts.length > 1);
+		expect(multi).to.have.length.greaterThan(0);
+
+		const stored = await store.fetch_rollbacks(0);
+
+		for (const rollback of multi) {
+			const rows = store.database
+				.prepare(
+					`select step from rollback_steps
+					join migrations on migrations.id = rollback_steps.migration_id
+					where version = ? order by rollback_steps.id`
+				)
+				.all(rollback.version) as {step: number}[];
+			const steps = rows.map((row) => row.step);
+			expect(steps).to.deep.equal(rollback.stmts.map((_, i) => i));
+
+			const found = stored.find((r) => r.version === rollback.version);
+			expect(found?.stmts).to.deep.equal(rollback.stmts);
+		}
+	});
+
+	it("should return rollback steps stored with step 0 in insertion order", async function () {
+		// Older builds stored every step of a rollback with step 0
+		const version = currentSchemaVersion + 1;
+		const stmts = ["select 3", "select 1", "select 2", "select 0"];
+		const migration = store.database
+			.prepare("insert into migrations (version) values (?) returning id")
+			.get(version) as {id: number};
+		const insertStep = store.database.prepare(
+			"insert into rollback_steps (migration_id, step, statement) values (?, 0, ?)"
+		);
+
+		for (const stmt of stmts) {
+			insertStep.run(migration.id, stmt);
+		}
+
+		try {
+			const stored = await store.fetch_rollbacks(currentSchemaVersion);
+			expect(stored).to.deep.equal([{version, rollback_forbidden: false, stmts}]);
+		} finally {
+			store.database
+				.prepare("delete from rollback_steps where migration_id = ?")
+				.run(migration.id);
+			store.database.prepare("delete from migrations where id = ?").run(migration.id);
+		}
+	});
+
 	it("should store a message", async function () {
 		await store.index(
 			{uuid: "this-is-a-network-guid"} as Network,

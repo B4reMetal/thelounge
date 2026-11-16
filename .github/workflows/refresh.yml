@@ -1,0 +1,40 @@
+# Weekly base-image refresh: when node:22-bookworm-slim has changed since the
+# newest release was built (Debian or Node.js security updates), cut a new
+# release of the same code on the new base. Weeks without a base update, and
+# a repository with no release yet, do nothing.
+name: Refresh base image
+
+on:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays 05:17 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: check and build, but tag and publish nothing"
+        type: boolean
+        default: false
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    uses: ./.github/workflows/cut-release.yml
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      refresh: true
+      # Version bump of a refresh release, the one setting:
+      #   patch: 2026.11.0 -> 2026.11.1; stays in the YYYY.M line, so :2026.11
+      #          moves to it and people pinned to 2026.11 get the new base
+      #   auto:  the calendar rule; in a new month it starts a new line
+      #          (2026.11.0 -> 2026.12.0), :2026.11 stays on the old base
+      bump: patch
+      dry_run: ${{ inputs.dry_run || false }}

@@ -79,7 +79,12 @@ interface ServerToClientEvents {
 
 	users: EventHandler<{chan: number}>;
 
-	more: EventHandler<{chan: number; messages: SharedMsg[]; totalMessages: number}>;
+	more: EventHandler<{
+		chan: number;
+		messages: SharedMsg[];
+		totalMessages: number;
+		hasMore: boolean;
+	}>;
 
 	"messages:around": EventHandler<{chan: number; messages: SharedMsg[]}>;
 
@@ -157,7 +162,14 @@ interface ClientToServerEvents {
 	"mentions:dismiss_all": NoPayloadEventHandler;
 	"mentions:get": NoPayloadEventHandler;
 
-	more: EventHandler<{target: number; lastId: number; condensed: boolean}>;
+	more: EventHandler<{
+		target: number;
+		lastId: number;
+		condensed: boolean;
+		// Time of the oldest message the client holds, used to page from
+		// storage once the server no longer has that message in memory
+		beforeTime?: number;
+	}>;
 
 	"messages:around": EventHandler<{target: number; time: number}>;
 

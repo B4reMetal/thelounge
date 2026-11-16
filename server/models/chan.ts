@@ -1,6 +1,7 @@
 import _ from "lodash";
 import log from "../log.js";
 import Config from "../config.js";
+import Helper from "../helper.js";
 import User from "./user.js";
 import Msg from "./msg.js";
 import storage from "../plugins/storage.js";
@@ -33,6 +34,9 @@ class Chan {
 	muted!: boolean;
 	type!: ChanType;
 	state!: ChanState;
+	// Whether stored history has been pulled into memory (or is being pulled)
+	// during this session. History is loaded on first open, not at startup.
+	historyLoaded!: boolean;
 	pinned!: boolean;
 
 	userAway?: boolean;
@@ -57,6 +61,7 @@ class Chan {
 			users: new Map(),
 			muted: false,
 			pinned: false,
+			historyLoaded: false,
 		});
 	}
 
@@ -211,6 +216,7 @@ class Chan {
 			id: this.id,
 			messages: msgs,
 			totalMessages: this.messages.length,
+			historyLoaded: this.historyLoaded,
 			name: this.name,
 			key: this.key,
 			topic: this.topic,
@@ -269,7 +275,18 @@ class Chan {
 		}
 	}
 
-	loadMessages(client: Client, network: Network) {
+	/**
+	 * Pulls this channel's stored history into memory, once per session.
+	 *
+	 * `lazy` is the first-open path for a channel that existed at startup. It
+	 * never asks ZNC for playback: live messages have been flowing since
+	 * connect, so a replay would only produce duplicates.
+	 */
+	loadMessages(client: Client, network: Network, lazy = false) {
+		if (this.historyLoaded) {
+			return;
+		}
+
 		if (!this.isLoggable()) {
 			return;
 		}
@@ -282,8 +299,11 @@ class Chan {
 			return;
 		}
 
+		// Set before the read resolves so a second open() can't start another one
+		this.historyLoaded = true;
+
 		if (!client.messageProvider) {
-			if (network.irc.network.cap.isEnabled("znc.in/playback")) {
+			if (!lazy && network.irc.network.cap.isEnabled("znc.in/playback")) {
 				// if we do have a message provider we might be able to only fetch partial history,
 				// so delay the cap in this case.
 				requestZncPlayback(this, network, 0);
@@ -293,41 +313,66 @@ class Chan {
 		}
 
 		client.messageProvider
-			.getMessages(network, this, () => client.idMsg++)
-			.then((messages) => {
-				if (messages.length === 0) {
-					if (network.irc!.network.cap.isEnabled("znc.in/playback")) {
+			.getMessages(network, this, (maxId) => {
+				client.idMsg = Math.max(client.idMsg, maxId + 1);
+			})
+			.then((stored) => {
+				if (stored.length === 0) {
+					if (!lazy && network.irc!.network.cap.isEnabled("znc.in/playback")) {
 						requestZncPlayback(this, network, 0);
+					}
+
+					if (lazy) {
+						// Tell clients there is nothing older, they assume
+						// there might be until the first load reports back
+						client.emit("more", {
+							chan: this.id,
+							messages: [],
+							totalMessages: this.messages.length,
+							hasMore: false,
+						});
 					}
 
 					return;
 				}
 
-				this.messages = messages.concat(this.messages);
+				// Messages that arrived since startup are already in memory
+				// and, being logged, are part of what was just read back.
+				const inMemory = new Set(this.messages.map((m) => m.id));
+				const messages = stored.filter((m) => !inMemory.has(m.id));
+
+				Helper.unshiftMany(this.messages, messages);
 
 				if (!this.firstUnread) {
-					this.firstUnread = messages[messages.length - 1].id;
+					this.firstUnread = this.messages[this.messages.length - 1].id;
 				}
 
 				const enhancedSearch = Boolean(client.config.clientSettings.searchEnabled && client.config.clientSettings.enableEnhancedSearch)
 
 				// if enhancedSearchEnabled = true send all loaded messages to the client
 				// otherwise only send 100
+				const toSend = enhancedSearch ? messages : messages.slice(-100);
+
 				client.emit("more", {
 					chan: this.id,
-					messages: enhancedSearch ? messages : messages.slice(-100),
-					totalMessages: messages.length,
+					messages: toSend,
+					totalMessages: this.messages.length,
+					// Anything older than what is sent here is still reachable,
+					// either from memory or straight from storage
+					hasMore: messages.length > toSend.length || stored.length >= historyLimit(),
 				});
 
-				if (network.irc!.network.cap.isEnabled("znc.in/playback")) {
-					const from = Math.floor(messages[messages.length - 1].time.getTime() / 1000);
+				if (!lazy && network.irc!.network.cap.isEnabled("znc.in/playback")) {
+					const from = Math.floor(stored[stored.length - 1].time.getTime() / 1000);
 
 					requestZncPlayback(this, network, from);
 				}
 			})
-			.catch((err: Error) =>
-				log.error(`Failed to load messages for ${client.name}: ${err.toString()}`)
-			);
+			.catch((err: Error) => {
+				// Let a later open() try again
+				this.historyLoaded = false;
+				log.error(`Failed to load messages for ${client.name}: ${err.toString()}`);
+			});
 	}
 
 	isLoggable() {
@@ -337,6 +382,11 @@ class Chan {
 	setMuteStatus(muted: boolean) {
 		this.muted = !!muted;
 	}
+}
+
+// Mirrors the row limit SqliteMessageStorage.getMessages() applies
+function historyLimit() {
+	return Config.values.maxHistory < 0 ? 100000 : Config.values.maxHistory;
 }
 
 function requestZncPlayback(channel: Chan, network: Network, from: number) {

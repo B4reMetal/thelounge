@@ -19,7 +19,9 @@ export function parser (originalMessage: SharedMsg) {
 	const edit = matcher.transform(originalMessage);
 	if (!edit || !edit.nick) return originalMessage;
 
-	const message = structuredClone(toRaw(originalMessage));
+	// Shallow copy: only `text` and `from` are replaced below, and `previews`
+	// has to stay the same reactive array the store updates
+	const message = {...toRaw(originalMessage)};
 	message.text = edit.content ?? message.text;
 	message.from = {
 		...message.from!,

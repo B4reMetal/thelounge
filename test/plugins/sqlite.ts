@@ -441,6 +441,55 @@ describe("SQLite Message Storage", function () {
 		}
 	});
 
+	it("should serve channel history from the composite index", function () {
+		const plan = store.database
+			.prepare(
+				"EXPLAIN QUERY PLAN SELECT id FROM messages WHERE network = ? AND channel = ? ORDER BY time DESC, id DESC LIMIT ?"
+			)
+			.all("a", "b", 1)
+			.map((row) => (row as {detail: string}).detail)
+			.join(" | ");
+
+		expect(plan).to.include("network_channel_time");
+		expect(plan).to.not.include("TEMP B-TREE"); // i.e. no sort of the whole channel
+	});
+
+	it("should page older messages without losing same-millisecond rows", async function () {
+		const net = {uuid: "paging-network"} as Network;
+		const chan = {name: "#paging"} as Channel;
+
+		// ids are set the way Chan.pushMessage() would, three rows share time 2000
+		for (const [id, time] of [
+			[101, 1000],
+			[102, 2000],
+			[103, 2000],
+			[104, 2000],
+			[105, 3000],
+		]) {
+			const msg = new Msg({time: time as unknown as Date, text: `paged ${id}`});
+			msg.id = id;
+			await store.index(net, chan, msg);
+		}
+
+		const strict = await store.getMessagesBefore(net.uuid, chan.name, 2000, 10);
+		expect(strict.map((m) => m.id)).to.deep.equal([101]);
+
+		const inclusive = await store.getMessagesBefore(net.uuid, chan.name, 2000, 10, true);
+		expect(inclusive.map((m) => m.id)).to.deep.equal([101, 102, 103, 104]);
+
+		// newest rows win when the limit cuts the page short, oldest first
+		const limited = await store.getMessagesBefore(net.uuid, chan.name, 3000, 2, true);
+		expect(limited.map((m) => m.id)).to.deep.equal([104, 105]);
+	});
+
+	it("should report the highest id it has stored", async function () {
+		const msg = new Msg({time: 4000 as unknown as Date, text: "high id"});
+		msg.id = 987654;
+		await store.index({uuid: "paging-network"} as Network, {name: "#paging"} as Channel, msg);
+
+		expect(await store.getMaxMessageId()).to.equal(987654);
+	});
+
 	it("should be able to downgrade", async function () {
 		for (const rollback of rollbacks.slice().reverse()) {
 			if (rollback.rollback_forbidden) {

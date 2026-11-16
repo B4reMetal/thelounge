@@ -24,6 +24,7 @@ const Helper = {
 	compareHostmask,
 	compareWithWildcard,
 	catch_to_error,
+	unshiftMany,
 
 	password: {
 		hash: passwordHash,
@@ -195,4 +196,15 @@ function catch_to_error(prefix: string, err: unknown): Error {
 	}
 
 	return new Error(`${prefix}: ${msg}`);
+}
+
+// `target.unshift(...items)` passes every item as a call argument and throws
+// "Maximum call stack size exceeded" once there are too many of them (roughly
+// 120k in V8). History batches can get that large, so prepend in slices.
+function unshiftMany<T>(target: T[], items: T[]): void {
+	const chunkSize = 10000;
+
+	for (let end = items.length; end > 0; end -= chunkSize) {
+		target.unshift(...items.slice(Math.max(0, end - chunkSize), end));
+	}
 }

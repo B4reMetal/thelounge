@@ -16,6 +16,7 @@ import GeneralSettings from "../components/Settings/General.vue";
 import AccountSettings from "../components/Settings/Account.vue";
 import NotificationSettings from "../components/Settings/Notifications.vue";
 import {ClientChan} from "./types";
+import {leaveHistorySlice} from "./chan";
 import {shouldShowGeneralSettings} from "./helpers/settingsTabs";
 
 const router = createRouter({
@@ -150,6 +151,12 @@ router.afterEach((to) => {
 
 		if (to.name !== "RoutedChat") {
 			store.commit("activeChannel", undefined);
+		}
+
+		// A slice of old history is only kept while staying with the channel
+		// (its chat or its search), anywhere else starts from the present again
+		if (channel.historySlice && Number(to.params.id) !== channel.id) {
+			leaveHistorySlice(channel);
 		}
 
 		// When switching out of a channel, mark everything as read

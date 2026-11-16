@@ -10,11 +10,39 @@ import Helper from "../../helper.js";
 import type {SearchableMessageStorage, DeletionRequest} from "./types.js";
 import Network from "../../models/network.js";
 import {SearchQuery, SearchResponse} from "../../../shared/types/storage.js";
+import {MessageType} from "../../../shared/types/msg.js";
 
 type Migration = {version: number; stmts: string[]};
+
+// Search index over the text of `type = 'message'` rows, keyed by messages.id.
+//
+// - trigram: finds arbitrary substrings, which is what search has always done.
+// - detail=none + contentless: the index only has to answer "which rows contain
+//   all of these trigrams". Every hit is checked against the real text in
+//   `messages` afterwards, so neither token positions nor a second copy of the
+//   text are stored. This is about a fifth of the size of the messages table.
+// - contentless_delete: lets rows be removed again without the original text.
+const ftsTable =
+	"CREATE VIRTUAL TABLE messages_fts USING fts5(text, tokenize='trigram', detail=none, content='', contentless_delete=1)";
+
+// Deletes happen in several places (clear history, storage cleaner), a trigger
+// covers all of them. Inserts go through flushBatch(), which writes the index
+// row itself: doing that from a trigger is roughly 8x slower per message.
+const ftsDeleteTrigger =
+	"CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages WHEN old.type = 'message' BEGIN DELETE FROM messages_fts WHERE rowid = old.id; END";
+
+// How many index hits each search strategy is used for. Exported so tests can
+// force a strategy; the values come from measurements on a 3M message history.
+export const searchLimits = {
+	// Up to this many hits are fetched by id directly
+	direct: 5000,
+	// Up to this many are used as a filter while walking messages newest first.
+	// Beyond it the term is so common that a plain walk finds a page right away.
+	filter: 100000,
+};
 type Rollback = {version: number; rollback_forbidden?: boolean; stmts: string[]};
 
-export const currentSchemaVersion = 1794816000000; // use `new Date().getTime()`
+export const currentSchemaVersion = 1794820000000; // use `new Date().getTime()`
 
 // Desired schema, adapt to the newest version and add migrations to the array below
 const schema = [
@@ -36,6 +64,8 @@ const schema = [
 	"CREATE INDEX network_channel_time ON messages (network, channel, time)",
 	"CREATE INDEX time ON messages (time)",
 	"CREATE INDEX msg_type_idx on messages (type)", // needed for efficient storageCleaner queries
+	ftsTable,
+	ftsDeleteTrigger,
 ];
 
 // the migrations will be executed in an exclusive transaction as a whole
@@ -80,6 +110,15 @@ export const migrations: Migration[] = [
 			"DROP INDEX network_channel", // strict prefix of the index above
 		],
 	},
+	{
+		version: 1794820000000,
+		stmts: [
+			ftsTable,
+			// Takes roughly 5 seconds per million messages
+			"INSERT INTO messages_fts(rowid, text) SELECT id, json_extract(msg, '$.text') FROM messages WHERE type = 'message' AND json_type(msg, '$.text') = 'text'",
+			ftsDeleteTrigger,
+		],
+	},
 ];
 
 // down migrations need to restore the state of the prior version.
@@ -104,6 +143,10 @@ export const rollbacks: Rollback[] = [
 			"DROP INDEX network_channel_time",
 		],
 	},
+	{
+		version: 1794820000000,
+		stmts: ["DROP TRIGGER messages_fts_delete", "DROP TABLE messages_fts"],
+	},
 ];
 
 class Deferred {
@@ -123,6 +166,8 @@ type BatchedMessage = {
 	time: number;
 	type: string;
 	msg: string;
+	// What search should find this row by, null if it isn't searchable
+	searchText: string | null;
 };
 
 class SqliteMessageStorage implements SearchableMessageStorage {
@@ -137,6 +182,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 	private batchTimeout = 1000; // Flush after 1 second
 	private batchTimer: NodeJS.Timeout | null = null;
 	private insertStmt: Database.Statement | null = null;
+	private ftsInsertStmt: Database.Statement | null = null;
 
 	constructor(userName: string) {
 		this.userName = userName;
@@ -153,6 +199,9 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			// Prepare insert statement for batching
 			this.insertStmt = this.database.prepare(
 				"INSERT INTO messages(network, channel, time, type, msg) VALUES(?, ?, ?, ?, ?)"
+			);
+			this.ftsInsertStmt = this.database.prepare(
+				"INSERT INTO messages_fts(rowid, text) VALUES(?, ?)"
 			);
 		} catch (e) {
 			this.isEnabled = false;
@@ -225,7 +274,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 	async _run_migrations(dbVersion: number) {
 		log.info(
-			`sqlite messages schema version is out of date (${dbVersion} < ${currentSchemaVersion}). Running migrations.`
+			`sqlite messages schema version is out of date (${dbVersion} < ${currentSchemaVersion}). Running migrations, this can take a while on a large history.`
 		);
 
 		const to_execute = necessaryMigrations(dbVersion);
@@ -317,7 +366,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			return Promise.resolve();
 		}
 
-		if (!this.insertStmt) {
+		if (!this.insertStmt || !this.ftsInsertStmt) {
 			log.error("Cannot flush batch: insert statement not prepared");
 			return Promise.resolve();
 		}
@@ -328,7 +377,19 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			// Use transaction for batch insert (much faster than individual inserts)
 			const transaction = this.database.transaction((msgs: BatchedMessage[]) => {
 				for (const msg of msgs) {
-					this.insertStmt!.run(msg.network, msg.channel, msg.time, msg.type, msg.msg);
+					const inserted = this.insertStmt!.run(
+						msg.network,
+						msg.channel,
+						msg.time,
+						msg.type,
+						msg.msg
+					);
+
+					// Same transaction, so the index can't get ahead of or
+					// fall behind the messages table
+					if (msg.searchText !== null) {
+						this.ftsInsertStmt!.run(inserted.lastInsertRowid, msg.searchText);
+					}
 				}
 			});
 
@@ -496,6 +557,8 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			time: msg.time.getTime(),
 			type: msg.type,
 			msg: JSON.stringify(clonedMsg),
+			searchText:
+				msg.type === MessageType.MESSAGE && typeof msg.text === "string" ? msg.text : null,
 		});
 
 		// Flush batch if it reaches the size limit
@@ -624,49 +687,111 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			}
 		}
 
-		// Using the '@' character to escape '%' and '_' in patterns.
-		const escapedSearchTerm = searchTermParts.join(" ").replace(/([%_@])/g, "@$1");
+		const searchTerm = searchTermParts.join(" ");
 
-		let select =
-			"SELECT id, msg, type, time, network, channel FROM messages WHERE type = 'message' AND json_extract(msg, '$.text') LIKE ? ESCAPE '@'";
-		const params: unknown[] = [`%${escapedSearchTerm}%`];
+		// Using the '@' character to escape '%' and '_' in patterns.
+		const pattern = `%${searchTerm.replace(/([%_@])/g, "@$1")}%`;
+
+		// Every strategy below ends in this same check against the stored
+		// text, so they all return exactly the same rows.
+		let where = "m.type = 'message' AND json_extract(m.msg, '$.text') LIKE ? ESCAPE '@'";
+		const whereParams: unknown[] = [pattern];
 
 		if (query.networkUuid) {
-			select += " AND network = ? ";
-			params.push(query.networkUuid);
+			where += " AND m.network = ?";
+			whereParams.push(query.networkUuid);
 		}
 
 		if (query.channelName) {
-			select += " AND channel = ? ";
-			params.push(query.channelName.toLowerCase());
+			where += " AND m.channel = ?";
+			whereParams.push(query.channelName.toLowerCase());
 		}
 
 		if (userFilter !== null) {
-			select += " AND LOWER(json_extract(msg, '$.from.nick')) = ? ";
-			params.push(userFilter.toLowerCase());
+			where += " AND LOWER(json_extract(m.msg, '$.from.nick')) = ?";
+			whereParams.push(userFilter.toLowerCase());
 		}
 
 		if (dateEndFilter !== null) {
-			select += " AND time <= ? ";
-			params.push(dateEndFilter);
+			where += " AND m.time <= ?";
+			whereParams.push(dateEndFilter);
 		}
 
 		if (dateStartFilter !== null) {
-			select += " AND time >= ? ";
-			params.push(dateStartFilter);
+			where += " AND m.time >= ?";
+			whereParams.push(dateStartFilter);
 		}
 
 		const maxResults = 100;
+		const columns = "m.id, m.msg, m.type, m.time, m.network, m.channel";
+		const tail = " ORDER BY m.time DESC, m.id DESC LIMIT ? OFFSET ?";
+		const tailParams = [maxResults, query.offset];
 
-		select += " ORDER BY time DESC, id DESC LIMIT ? OFFSET ? ";
-		params.push(maxResults);
-		params.push(query.offset);
+		// An index that hands rows out newest first, so a walk can stop as soon
+		// as it has a page. Named explicitly because the planner otherwise
+		// prefers msg_type_idx and sorts every message there is.
+		const newestFirst =
+			query.networkUuid && query.channelName
+				? "messages m INDEXED BY network_channel_time"
+				: "messages m INDEXED BY time";
 
-		const rows = await this.serialize_fetchall(select, ...params);
+		const candidates = this.searchCandidates(searchTerm);
+		let rows: unknown[];
+
+		if (candidates !== null && candidates.length <= searchLimits.direct) {
+			// Few places the term can be: look just those rows up. This is
+			// what makes rare and absent terms fast, they used to mean reading
+			// every message in scope.
+			rows = await this.serialize_fetchall(
+				`SELECT ${columns} FROM json_each(?) c CROSS JOIN messages m ON m.id = c.value WHERE ${where}${tail}`,
+				JSON.stringify(candidates),
+				...whereParams,
+				...tailParams
+			);
+		} else if (candidates !== null) {
+			// Too many to look up one by one, few enough to hold: walk newest
+			// first and skip anything the index rules out without reading it.
+			rows = await this.serialize_fetchall(
+				`SELECT ${columns} FROM ${newestFirst} WHERE m.id IN (SELECT value FROM json_each(?)) AND ${where}${tail}`,
+				JSON.stringify(candidates),
+				...whereParams,
+				...tailParams
+			);
+		} else {
+			// Either the index can't help (under 3 characters) or the term
+			// is everywhere, in which case the newest page fills up at once.
+			rows = await this.serialize_fetchall(
+				`SELECT ${columns} FROM ${newestFirst} WHERE ${where}${tail}`,
+				...whereParams,
+				...tailParams
+			);
+		}
+
 		return {
 			...query,
 			results: parseSearchRowsToMessages(rows).reverse(),
 		};
+	}
+
+	/**
+	 * Ids of the messages that could contain `term`, according to the trigram
+	 * index: a superset of the real matches, never missing one. Null when the
+	 * index has nothing useful to say, i.e. the term is shorter than a trigram
+	 * or matches more rows than are worth collecting.
+	 */
+	private searchCandidates(term: string): number[] | null {
+		const match = trigramQuery(term);
+
+		if (match === null) {
+			return null;
+		}
+
+		const ids = this.database
+			.prepare("SELECT rowid FROM messages_fts WHERE messages_fts MATCH ? LIMIT ?")
+			.pluck()
+			.all(match, searchLimits.filter + 1) as number[];
+
+		return ids.length > searchLimits.filter ? null : ids;
 	}
 
 	async deleteMessages(req: DeletionRequest): Promise<number> {
@@ -914,6 +1039,32 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			return Promise.reject(err instanceof Error ? err : new Error(String(err)));
 		}
 	}
+}
+
+/**
+ * FTS5 query matching every row whose text contains all trigrams of `term`.
+ *
+ * With detail=none the index can't do phrase queries, which is what handing
+ * it the raw term would be, so the term is cut into trigrams here and each
+ * one is passed as its own quoted token. Returns null for terms too short to
+ * have a trigram.
+ */
+export function trigramQuery(term: string): string | null {
+	// By code point, the same way the tokenizer counts characters
+	const chars = Array.from(term);
+
+	// NUL can't be part of a query string, let the plain scan deal with it
+	if (chars.length < 3 || term.includes("\0")) {
+		return null;
+	}
+
+	const trigrams = new Set<string>();
+
+	for (let i = 0; i + 3 <= chars.length; i++) {
+		trigrams.add(`"${chars.slice(i, i + 3).join("").replace(/"/g, '""')}"`);
+	}
+
+	return Array.from(trigrams).join(" AND ");
 }
 
 function parseSearchRowsToMessages(rows: unknown[]) {

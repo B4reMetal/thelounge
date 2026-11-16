@@ -51,13 +51,13 @@ User list and sidebar
 
 File uploads
 
-- Selectable upload backend per user: local (with optional auto-deletion after
-  1 to 7 days), Catbox, ImageBB, PTScreens, qu.ax, Uguu, OnlyImage, ptpimg,
-  XBackBone, Zipline and rustypaste.
+- Selectable upload backend per user: local (with optional auto-deletion, from
+  1 hour to 1 month or a custom time), Catbox, ImageBB, PTScreens, qu.ax, Uguu,
+  OnlyImage, ptpimg, XBackBone, Zipline and rustypaste.
 
 Commands
 
-- `/rainbow` (alias `/rgb`, or Ctrl+R if enabled) sends a rainbow-coloured
+- `/rainbow` (alias `/rgb`, or Ctrl+R, Cmd+R on macOS, if enabled) sends a rainbow-coloured
   message.
 - `/cleartopic` clears the channel topic.
 - `thelounge storage vacuum` rewrites message databases to return unused space

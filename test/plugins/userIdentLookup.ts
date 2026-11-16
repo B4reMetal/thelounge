@@ -64,6 +64,33 @@ describe("UserIdentLookup", function () {
 		expect(sent).to.have.lengthOf(1);
 	});
 
+	it("doesn't send a WHOIS for something that isn't a nick", async function () {
+		const {lookup, sent, network} = setup();
+
+		for (const nick of ["", "a b", "a,b", "a*", "#chan", "a\r\nQUIT", "x".repeat(65)]) {
+			expect(await lookup.lookup(network, nick)).to.equal(null);
+		}
+
+		expect(sent).to.deep.equal([]);
+	});
+
+	it("waits for a few WHOIS replies per network at most", async function () {
+		const {lookup, sent, network} = setup();
+
+		for (let i = 0; i < 5; i++) {
+			void lookup.lookup(network, `user${i}`);
+		}
+
+		expect(await lookup.lookup(network, "user5")).to.equal(null);
+		expect(sent).to.have.lengthOf(5);
+
+		// once one is answered there is room again
+		lookup.handleWhois(network, {nick: "user0", ident: "1", hostname: "h"});
+		void lookup.lookup(network, "user5");
+		expect(sent).to.have.lengthOf(6);
+		lookup.clear();
+	});
+
 	it("leaves a WHOIS reply nobody is waiting for alone", function () {
 		const {lookup, network} = setup();
 

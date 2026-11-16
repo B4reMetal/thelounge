@@ -4,11 +4,11 @@ about: Create a bug report
 labels: "Type: Bug"
 ---
 
-<!-- Have a question? Join #thelounge on Libera.Chat -->
+<!-- This is for bugs in this fork. Bugs that also occur in stock The Lounge can be reported to that project. -->
 
 - _Node version:_
 - _Browser version:_
 - _Device, operating system:_
-- _The Lounge version:_
+- _Version (image tag or commit):_
 
 ---

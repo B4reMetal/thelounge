@@ -25,7 +25,19 @@ program
 function initalizeConfig() {
 	if (!fs.existsSync(Config.getConfigPath())) {
 		fs.mkdirSync(Config.getHomePath(), {recursive: true});
-		fs.chmodSync(Config.getHomePath(), "0700");
+
+		try {
+			fs.chmodSync(Config.getHomePath(), "0700");
+		} catch (e) {
+			// A folder we may write but do not own, as given to an arbitrary
+			// uid by Kubernetes or OpenShift: keep its permissions
+			if ((e as NodeJS.ErrnoException).code !== "EPERM") {
+				throw e;
+			}
+
+			log.warn(`Could not restrict permissions of ${Config.getHomePath()}: not its owner.`);
+		}
+
 		const __dirname = getDirname(import.meta.url);
 		const defaultConfigPath = path.resolve(
 			path.join(__dirname, "..", "..", "defaults", "config.js")

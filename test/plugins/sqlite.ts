@@ -10,6 +10,8 @@ import MessageStorage, {
 	migrations,
 	necessaryMigrations,
 	rollbacks,
+	searchLimits,
+	trigramQuery,
 } from "../../dist/server/plugins/messageStorage/sqlite.js";
 import Database from "better-sqlite3";
 import type {DeletionRequest} from "../../server/plugins/messageStorage/types.js";
@@ -488,6 +490,143 @@ describe("SQLite Message Storage", function () {
 		await store.index({uuid: "paging-network"} as Network, {name: "#paging"} as Channel, msg);
 
 		expect(await store.getMaxMessageId()).to.equal(987654);
+	});
+
+	it("should build index queries out of trigrams", function () {
+		expect(trigramQuery("ab")).to.equal(null);
+		expect(trigramQuery("abc")).to.equal('"abc"');
+		expect(trigramQuery("abcd")).to.equal('"abc" AND "bcd"');
+		expect(trigramQuery("aaaa")).to.equal('"aaa"');
+		expect(trigramQuery('a"b c')).to.equal('"a""b" AND """b " AND "b c"');
+		// counted by character, not by UTF-16 unit
+		expect(trigramQuery("a😀b")).to.equal('"a😀b"');
+		expect(trigramQuery("😀b")).to.equal(null);
+	});
+
+	// The tests below share these messages and run in order
+	const ftsNet = {uuid: "fts-network"} as Network;
+	const ftsChan = {name: "#fts"} as Channel;
+	const ftsOther = {name: "#fts-other"} as Channel;
+	const defaultLimits = {...searchLimits};
+
+	async function find(searchTerm: string, channelName: string) {
+		const {results} = await store.search({
+			searchTerm,
+			networkUuid: ftsNet.uuid,
+			channelName,
+			offset: 0,
+		});
+
+		return results.map((m) => m.text);
+	}
+
+	// Runs a search through all three strategies and insists they agree
+	async function findEveryWay(searchTerm: string, channelName = ftsChan.name) {
+		const found: (string | undefined)[][] = [];
+
+		try {
+			for (const limits of [defaultLimits, {direct: 0, filter: 1000}, {direct: 0, filter: 0}]) {
+				Object.assign(searchLimits, limits);
+				found.push(await find(searchTerm, channelName));
+			}
+		} finally {
+			Object.assign(searchLimits, defaultLimits);
+		}
+
+		expect(found[1]).to.deep.equal(found[0], `filtered walk differs for "${searchTerm}"`);
+		expect(found[2]).to.deep.equal(found[0], `plain walk differs for "${searchTerm}"`);
+
+		return found[0];
+	}
+
+	function indexHits(term: string) {
+		return store.database
+			.prepare("SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?")
+			.all(trigramQuery(term)).length;
+	}
+
+	it("should find the same messages whichever search strategy runs", async function () {
+		const texts = [
+			"The quick brown fox",
+			"quick thinking saves the day",
+			'she said "quick" twice',
+			"Grüße aus München",
+			"100% sure_thing @home",
+			"ok",
+			"quick quick quick",
+		];
+
+		for (const [i, text] of texts.entries()) {
+			await store.index(ftsNet, ftsChan, new Msg({time: new Date(5000 + i), text}));
+		}
+
+		await store.index(
+			ftsNet,
+			ftsOther,
+			new Msg({time: new Date(6000), text: "quick, elsewhere"})
+		);
+		await store.index(
+			ftsNet,
+			ftsChan,
+			new Msg({time: new Date(6001), text: "quick join", type: MessageType.JOIN})
+		);
+
+		expect(await findEveryWay("quick")).to.deep.equal([
+			"The quick brown fox",
+			"quick thinking saves the day",
+			'she said "quick" twice',
+			"quick quick quick",
+		]);
+		expect(await findEveryWay("QUICK BROWN")).to.deep.equal(["The quick brown fox"]);
+		expect(await findEveryWay('"quick"')).to.deep.equal(['she said "quick" twice']);
+		expect(await findEveryWay("München")).to.deep.equal(["Grüße aus München"]);
+		expect(await findEveryWay("100%")).to.deep.equal(["100% sure_thing @home"]);
+		expect(await findEveryWay("sure_thing @h")).to.deep.equal(["100% sure_thing @home"]);
+		expect(await findEveryWay("sureXthing")).to.deep.equal([]);
+		expect(await findEveryWay("nowhere to be found")).to.deep.equal([]);
+		// too short for the index, still found
+		expect(await findEveryWay("ok")).to.deep.equal(["ok"]);
+	});
+
+	it("should keep searches inside their channel", async function () {
+		expect(await findEveryWay("elsewhere")).to.deep.equal([]);
+		expect(await findEveryWay("elsewhere", ftsOther.name)).to.deep.equal(["quick, elsewhere"]);
+	});
+
+	it("should only index plain messages", async function () {
+		expect(await findEveryWay("quick join")).to.deep.equal([]);
+		expect(indexHits("quick join")).to.equal(0);
+	});
+
+	it("should narrow a search down with the index", function () {
+		expect(indexHits("brown fox")).to.equal(1);
+		expect(indexHits("nowhere to be found")).to.equal(0);
+	});
+
+	it("should drop deleted messages from the index", async function () {
+		const before = indexHits("quick");
+		await store.deleteChannel(ftsNet, ftsOther);
+
+		expect(indexHits("quick")).to.equal(before - 1);
+		expect(await findEveryWay("elsewhere", ftsOther.name)).to.deep.equal([]);
+	});
+
+	it("should index existing messages when migrating", async function () {
+		// Take the index away the way an older build rolling back would
+		const previous = migrations[migrations.length - 2].version;
+		await store.downgrade_to(previous);
+		store.database
+			.prepare("UPDATE options SET value = ? WHERE name = 'schema_version'")
+			.run(previous.toString());
+
+		expect(
+			store.database.prepare("SELECT name FROM sqlite_master WHERE name = 'messages_fts'").all()
+		).to.have.lengthOf(0);
+
+		await store.run_migrations();
+
+		expect(indexHits("brown fox")).to.equal(1);
+		expect(await findEveryWay("brown fox")).to.deep.equal(["The quick brown fox"]);
 	});
 
 	it("should be able to downgrade", async function () {

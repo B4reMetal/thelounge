@@ -29,6 +29,17 @@ describe("UserIdentLookup", function () {
 		expect(sent).to.deep.equal([]);
 	});
 
+	it("asks again when the known ident is not a user id", async function () {
+		const {lookup, chan, sent, network} = setup();
+		chan.setUser(new User({nick: "Mallory", ident: "~mallory", hostname: "m.example"}));
+
+		const pending = lookup.lookup(network, "mallory");
+		expect(sent).to.deep.equal([["WHOIS", "mallory"]]);
+
+		lookup.handleWhois(network, {nick: "mallory", ident: "4321", hostname: "m.example"});
+		expect(await pending).to.deep.equal({ident: "4321", hostname: "m.example"});
+	});
+
 	it("sends one WHOIS for a user it knows nothing about and hides the reply", async function () {
 		const {lookup, chan, sent, network} = setup();
 		chan.setUser(new User({nick: "Bob"}));

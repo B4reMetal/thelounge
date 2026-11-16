@@ -1,6 +1,7 @@
 import {expect} from "chai";
 import sinon from "sinon";
 import log from "../../server/log.js";
+import Config from "../../server/config.js";
 import pkg from "../../package.json" with {type: "json"};
 import changelog, {
 	RELEASES_PAGE_URL,
@@ -91,14 +92,20 @@ describe("changelog", function () {
 	describe("fetch", function () {
 		let fetchStub: sinon.SinonStub;
 		let errorStub: sinon.SinonStub;
+		let originalBind: string | undefined;
 
 		beforeEach(function () {
+			// The update check goes through outgoingFetch, which only uses the
+			// global fetch stubbed here when no bind address is set
+			originalBind = Config.values.bind;
+			Config.values.bind = undefined;
 			updateVersions("[]").expiresAt = -1;
 			fetchStub = sinon.stub(globalThis, "fetch");
 			errorStub = sinon.stub(log, "error");
 		});
 
 		afterEach(function () {
+			Config.values.bind = originalBind;
 			fetchStub.restore();
 			errorStub.restore();
 			updateVersions("[]").expiresAt = -1;

@@ -16,7 +16,7 @@ import GeneralSettings from "../components/Settings/General.vue";
 import AccountSettings from "../components/Settings/Account.vue";
 import NotificationSettings from "../components/Settings/Notifications.vue";
 import {ClientChan} from "./types";
-import {leaveHistorySlice} from "./chan";
+import {leaveHistorySlice, trimMessages} from "./chan";
 import {shouldShowGeneralSettings} from "./helpers/settingsTabs";
 
 const router = createRouter({
@@ -164,14 +164,10 @@ router.afterEach((to) => {
 			channel.firstUnread = channel.messages[channel.messages.length - 1].id;
 		}
 
-		if (store.state.settings.searchEnabled && store.state.settings.enableEnhancedSearch) {
-			// If  Enhanced Search is enabled dont truncate messages
-			// keep messages in memory for search/navigation purposes
-		} else {
-			if (channel.messages?.length > 100) {
-				channel.messages.splice(0, channel.messages.length - 100);
-				channel.moreHistoryAvailable = true;
-			}
+		// Moving to another message in the same channel (a jump from the
+		// mentions) is not leaving it
+		if (to.name !== "RoutedChat" || Number(to.params.id) !== channel.id) {
+			trimMessages(channel, 100);
 		}
 	}
 });

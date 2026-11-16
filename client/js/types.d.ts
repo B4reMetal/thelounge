@@ -28,6 +28,22 @@ type ClientChan = Omit<SharedChan, "messages"> & {
 	usersOutdated: boolean;
 
 	users: ClientUser[];
+
+	// Set while `messages` holds a slice of old history that is not joined up
+	// with the present, which is what jumping to an old message produces.
+	historySlice?: HistorySlice;
+};
+
+type HistorySlice = {
+	// Storage has messages newer than the end of the slice
+	hasNewer: boolean;
+	loadingNewer: boolean;
+	// Messages that arrived live while the slice is shown. They can't be
+	// appended, there is a gap between the slice and them.
+	live: ClientMessage[];
+	// `live` overflowed and was emptied, so the gap has to be closed from
+	// storage rather than from `live`
+	liveDropped: boolean;
 };
 
 type InitClientChan = ClientChan & {

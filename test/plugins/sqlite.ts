@@ -482,6 +482,49 @@ describe("SQLite Message Storage", function () {
 		expect(limited.map((m) => m.id)).to.deep.equal([104, 105]);
 	});
 
+	it("should return the history around a point and say what lies beyond", async function () {
+		const net = {uuid: "around-network"} as Network;
+		const chan = {name: "#around"} as Channel;
+
+		for (let i = 1; i <= 10; i++) {
+			const msg = new Msg({time: new Date(i * 1000), text: `around ${i}`});
+			msg.id = 500 + i;
+			await store.index(net, chan, msg);
+		}
+
+		const middle = await store.getMessagesAround(net.uuid, chan.name, 5000, 4);
+		expect(middle.messages.map((m) => m.text)).to.deep.equal([
+			"around 4",
+			"around 5",
+			"around 6",
+			"around 7",
+		]);
+		expect(middle.hasMoreBefore).to.equal(true);
+		expect(middle.hasMoreAfter).to.equal(true);
+
+		const start = await store.getMessagesAround(net.uuid, chan.name, 2000, 4);
+		expect(start.messages.map((m) => m.text)).to.deep.equal([
+			"around 1",
+			"around 2",
+			"around 3",
+			"around 4",
+		]);
+		expect(start.hasMoreBefore).to.equal(false);
+		expect(start.hasMoreAfter).to.equal(true);
+
+		const end = await store.getMessagesAround(net.uuid, chan.name, 9000, 4);
+		expect(end.messages.map((m) => m.text)).to.deep.equal([
+			"around 8",
+			"around 9",
+			"around 10",
+		]);
+		expect(end.hasMoreBefore).to.equal(true);
+		expect(end.hasMoreAfter).to.equal(false);
+
+		const after = await store.getMessagesAfter(net.uuid, chan.name, 8000, 2);
+		expect(after.map((m) => m.id)).to.deep.equal([508, 509]);
+	});
+
 	it("should report the highest id it has stored", async function () {
 		const msg = new Msg({time: 4000 as unknown as Date, text: "high id"});
 		msg.id = 987654;

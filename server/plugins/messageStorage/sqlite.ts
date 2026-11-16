@@ -853,20 +853,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		let maxId = 0;
 
 		const messages = rows.reverse().map((row): Message => {
-			const r = row as Record<string, unknown>;
-			const msg = JSON.parse(r.msg as string);
-			msg.time = r.time;
-			msg.type = r.type;
-
-			const newMsg = new Msg(msg);
-
-			// Use ID from stored JSON if available (new messages)
-			// Fall back to SQLite row ID for old messages without stored ID
-			if (typeof msg.id === "number") {
-				newMsg.id = msg.id;
-			} else {
-				newMsg.id = r.id as number;
-			}
+			const newMsg = rowToMessage(row);
 
 			if (newMsg.id > maxId) {
 				maxId = newMsg.id;
@@ -1009,7 +996,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 		return {
 			...query,
-			results: parseSearchRowsToMessages(rows).reverse(),
+			results: rows.map(rowToMessage).reverse(),
 		};
 	}
 
@@ -1067,39 +1054,6 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		sql += ")";
 
 		return this.serialize_run(sql, ...params);
-	}
-
-	/**
-	 * Get last N messages for a channel (for initial load)
-	 */
-	async getLastMessages(
-		networkUuid: string,
-		channelName: string,
-		limit: number
-	): Promise<Message[]> {
-		await this.initDone.promise;
-
-		if (!this.isEnabled) {
-			return [];
-		}
-
-		// Flush any pending batched writes before reading
-		await this.flushBatch();
-
-		const rows = await this.serialize_fetchall(
-			"SELECT msg, type, time FROM messages WHERE network = ? AND channel = ? ORDER BY time DESC, id DESC LIMIT ?",
-			networkUuid,
-			channelName.toLowerCase(),
-			limit
-		);
-
-		return rows.reverse().map((row): Message => {
-			const r = row as Record<string, unknown>;
-			const msg = JSON.parse(r.msg as string);
-			msg.time = r.time;
-			msg.type = r.type;
-			return new Msg(msg);
-		});
 	}
 
 	/**
@@ -1167,19 +1121,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			limit
 		);
 
-		return rows.reverse().map((row): Message => {
-			const r = row as Record<string, unknown>;
-			const msg = JSON.parse(r.msg as string);
-			msg.time = r.time;
-			msg.type = r.type;
-
-			// Use stored ID from JSON if available, fall back to SQLite row ID
-			if (typeof msg.id !== "number") {
-				msg.id = r.id as number;
-			}
-
-			return new Msg(msg);
-		});
+		return rows.reverse().map(rowToMessage);
 	}
 
 	/**
@@ -1264,25 +1206,6 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		return rows.map(rowToMessage);
 	}
 
-	/**
-	 * Get total message count for a channel
-	 */
-	async getMessageCount(networkUuid: string, channelName: string): Promise<number> {
-		await this.initDone.promise;
-
-		if (!this.isEnabled) {
-			return 0;
-		}
-
-		const row = await this.serialize_get(
-			"SELECT COUNT(*) as count FROM messages WHERE network = ? AND channel = ?",
-			networkUuid,
-			channelName.toLowerCase()
-		);
-
-		return row ? ((row as Record<string, unknown>).count as number) : 0;
-	}
-
 	canProvideMessages() {
 		return this.isEnabled;
 	}
@@ -1346,12 +1269,21 @@ export function trigramQuery(term: string): string | null {
 	return Array.from(trigrams).join(" AND ");
 }
 
-// Turns a `SELECT id, msg, type, time` row back into a message
+// Turns a `SELECT id, msg, type, time` row back into a message. Search rows
+// also select `network` and `channel`, which are kept on the message.
 function rowToMessage(row: unknown): Message {
 	const r = row as Record<string, unknown>;
 	const msg = JSON.parse(r.msg as string);
 	msg.time = r.time;
 	msg.type = r.type;
+
+	if (r.network !== undefined) {
+		msg.networkUuid = r.network;
+	}
+
+	if (r.channel !== undefined) {
+		msg.channelName = r.channel;
+	}
 
 	// Use stored ID from JSON if available, fall back to SQLite row ID
 	if (typeof msg.id !== "number") {
@@ -1359,28 +1291,6 @@ function rowToMessage(row: unknown): Message {
 	}
 
 	return new Msg(msg);
-}
-
-function parseSearchRowsToMessages(rows: unknown[]) {
-	const messages: Msg[] = [];
-
-	for (const row of rows) {
-		const r = row as Record<string, unknown>;
-		const msg = JSON.parse(r.msg as string);
-		msg.time = r.time;
-		msg.type = r.type;
-		msg.networkUuid = r.network;
-		msg.channelName = r.channel;
-
-		// Use stored ID from JSON if available, fall back to SQLite row ID
-		if (typeof msg.id !== "number") {
-			msg.id = r.id as number;
-		}
-
-		messages.push(new Msg(msg));
-	}
-
-	return messages;
 }
 
 export function necessaryMigrations(since: number): Migration[] {

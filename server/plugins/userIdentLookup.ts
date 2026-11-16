@@ -12,8 +12,12 @@ type Pending = {
 	noSuchNickHidden: boolean;
 };
 
-// How long a WHOIS sent from here may take to be answered
-const timeoutMs = 5000;
+// How long a WHOIS sent from here may take to be answered (the client gives
+// up after 8 s), and how long a reply that comes later is still kept out of
+// the client
+const defaultTimeouts = {answerMs: 5000, lateReplyMs: 30000};
+
+type TimedOut = {timer: NodeJS.Timeout; noSuchNickHidden: boolean};
 
 // Lookups that may wait for a WHOIS at once on one network
 const maxPendingPerNetwork = 5;
@@ -33,6 +37,10 @@ const nickLike = /^[^\s,*?!@#&:\p{Cc}][^\s,*?!@\p{Cc}]{0,63}$/u;
  */
 class UserIdentLookup {
 	private pending = new Map<string, Pending>();
+	// Lookups that gave up waiting, whose reply may still come
+	private timedOut = new Map<string, TimedOut>();
+
+	constructor(private timeouts = defaultTimeouts) {}
 
 	private key(network: Network, nick: string) {
 		return `${network.uuid}:${nick.toLowerCase()}`;
@@ -78,7 +86,7 @@ class UserIdentLookup {
 			}
 
 			this.pending.set(key, {
-				timer: setTimeout(() => this.finish(key, null), timeoutMs),
+				timer: setTimeout(() => this.timeOut(key), this.timeouts.answerMs),
 				resolve: [resolve],
 				silent: true,
 				noSuchNickHidden: false,
@@ -98,6 +106,8 @@ class UserIdentLookup {
 		if (waiting) {
 			waiting.silent = false;
 		}
+
+		this.forgetTimedOut(this.key(network, nick));
 	}
 
 	/**
@@ -107,9 +117,10 @@ class UserIdentLookup {
 	 * taken per lookup, others are about something else.
 	 */
 	hideNoSuchNick(network: Network, nick: string) {
-		const waiting = this.pending.get(this.key(network, nick));
+		const key = this.key(network, nick);
+		const waiting = this.pending.get(key) ?? this.timedOut.get(key);
 
-		if (!waiting?.silent || waiting.noSuchNickHidden) {
+		if (!waiting || ("silent" in waiting && !waiting.silent) || waiting.noSuchNickHidden) {
 			return false;
 		}
 
@@ -138,8 +149,9 @@ class UserIdentLookup {
 
 		const key = this.key(network, data.nick);
 		const waiting = this.pending.get(key);
+		const late = !waiting && this.timedOut.has(key);
 
-		if (!waiting) {
+		if (!waiting && !late) {
 			return false;
 		}
 
@@ -160,9 +172,38 @@ class UserIdentLookup {
 			}
 		}
 
+		if (late) {
+			// Answers a lookup that gave up, nobody asked to see it
+			this.forgetTimedOut(key);
+			return true;
+		}
+
 		this.finish(key, known);
 
-		return waiting.silent;
+		return waiting!.silent;
+	}
+
+	private timeOut(key: string) {
+		const waiting = this.pending.get(key);
+
+		if (waiting?.silent) {
+			this.forgetTimedOut(key);
+			this.timedOut.set(key, {
+				timer: setTimeout(() => this.timedOut.delete(key), this.timeouts.lateReplyMs),
+				noSuchNickHidden: waiting.noSuchNickHidden,
+			});
+		}
+
+		this.finish(key, null);
+	}
+
+	private forgetTimedOut(key: string) {
+		const timedOut = this.timedOut.get(key);
+
+		if (timedOut) {
+			clearTimeout(timedOut.timer);
+			this.timedOut.delete(key);
+		}
 	}
 
 	private finish(key: string, result: UserIdent | null) {
@@ -183,6 +224,10 @@ class UserIdentLookup {
 	clear() {
 		for (const key of Array.from(this.pending.keys())) {
 			this.finish(key, null);
+		}
+
+		for (const key of Array.from(this.timedOut.keys())) {
+			this.forgetTimedOut(key);
 		}
 	}
 }

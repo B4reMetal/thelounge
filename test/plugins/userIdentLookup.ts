@@ -5,7 +5,7 @@ import User from "../../server/models/user.js";
 import type Network from "../../server/models/network.js";
 import UserIdentLookup from "../../server/plugins/userIdentLookup.js";
 
-function setup() {
+function setup(timeouts?: {answerMs: number; lateReplyMs: number}) {
 	const sent: string[][] = [];
 	const chan = new Chan({name: "#tracker"});
 	const network = {
@@ -14,7 +14,12 @@ function setup() {
 		irc: {connected: true, raw: (...args: string[]) => sent.push(args)},
 	};
 
-	return {lookup: new UserIdentLookup(), chan, sent, network: network as unknown as Network};
+	return {
+		lookup: new UserIdentLookup(timeouts),
+		chan,
+		sent,
+		network: network as unknown as Network,
+	};
 }
 
 describe("UserIdentLookup", function () {
@@ -136,6 +141,40 @@ describe("UserIdentLookup", function () {
 		expect(lookup.handleWhois(network, {nick: "nobody", error: true})).to.equal(true);
 		expect(lookup.hideNoSuchNick(network, "nobody")).to.equal(false);
 		expect(await pending).to.equal(null);
+	});
+
+	it("keeps a reply that comes after giving up out of the client, once", async function () {
+		const {lookup, chan, network} = setup({answerMs: 5, lateReplyMs: 1000});
+		chan.setUser(new User({nick: "Hank"}));
+
+		expect(await lookup.lookup(network, "hank")).to.equal(null);
+
+		expect(lookup.hideNoSuchNick(network, "hank")).to.equal(true);
+		expect(lookup.handleWhois(network, {nick: "Hank", ident: "88", hostname: "h"})).to.equal(
+			true
+		);
+		// and still remembers what it said
+		expect(chan.findUser("hank")!.ident).to.equal("88");
+		expect(lookup.handleWhois(network, {nick: "hank", ident: "88", hostname: "h"})).to.equal(
+			false
+		);
+		lookup.clear();
+	});
+
+	it("shows a late reply the user asked for, or one that comes much later", async function () {
+		const {lookup, network} = setup({answerMs: 5, lateReplyMs: 20});
+
+		expect(await lookup.lookup(network, "ivy")).to.equal(null);
+		lookup.shownWhoisRequested(network, "Ivy");
+		expect(lookup.handleWhois(network, {nick: "ivy", ident: "1", hostname: "h"})).to.equal(
+			false
+		);
+
+		expect(await lookup.lookup(network, "jack")).to.equal(null);
+		await new Promise((resolve) => setTimeout(resolve, 40));
+		expect(lookup.handleWhois(network, {nick: "jack", ident: "1", hostname: "h"})).to.equal(
+			false
+		);
 	});
 
 	it("answers with nothing when disconnected or when dropped", async function () {

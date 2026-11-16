@@ -315,19 +315,20 @@ export function generateUserContextMenu(
 	store: TypedStore,
 	channel: ClientChan,
 	network: ClientNetwork,
-	user: Pick<ClientUser, "nick" | "modes">
+	user: Pick<ClientUser, "nick" | "modes"> & {tracker?: string}
 ): ContextMenuItem[] {
 	const currentChannelUser: ClientUser | Record<string, never> = channel
 		? channel.users.find((u) => u.nick === network.nick) || {}
 		: {};
 
-	// "Tracker Profile" for networks with a matching entry in config.js `torrentSites`
+	// "Tracker Profile" for networks with a matching entry in config.js `trackers`.
+	// A user bridged from a tracker's shoutbox is looked up on that tracker.
 	const trackerProfileEntry = (): ContextMenuItem[] => {
 		if (!store.state.settings.enhancedContextMenuEnabled) {
 			return [];
 		}
 
-		const url = getTrackerProfileUrl(network, channel, user.nick);
+		const url = getTrackerProfileUrl(network, channel, user.nick, user.tracker);
 
 		if (!url) {
 			return [];

@@ -1,8 +1,8 @@
 import { type Matcher } from "./types/matcher";
 
 /**
- * Matchers for shoutbox messages. `site` ties a matcher to its tracker's entry
- * in config.js `torrentSites` (by abbreviation); see `Matcher.site`.
+ * Matchers for shoutbox messages. `tracker` ties a matcher to its tracker's entry
+ * in config.js `trackers` (by id); see `Matcher.tracker`.
  */
 export const matchers: Matcher[] = [
 	{
@@ -18,7 +18,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "Anthelion",
-		site: "ANT",
+		tracker: "ANT",
 		description: "[ SB ] (<nick>): <message>",
 		matches: [ "sauron" ],
 		regex: /^0 \[2 SB0 \] \((?<nick>[^):]+)\): (?<content>.*)/,
@@ -29,7 +29,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "Aura4K",
-		site: "A4K",
+		tracker: "A4K",
 		description: "[nick] message",
 		matches: [ "aurarelay" ],
 		regex: /^11\[04(?<nick>[^:\]]+?)11\] (?<content>.*)/,
@@ -50,7 +50,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "DarkPeers",
-		site: "DP",
+		tracker: "DP",
 		description: "[nick] message",
 		matches: [ "darkpeers", "dp" ],
 		regex: /^\[(?<nick>[^:\]]+)\] (?<content>.*)/,
@@ -81,7 +81,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "HomiesHelpDesk",
-		site: "HHD",
+		tracker: "HHD",
 		description: "[username] (platform): message",
 		matches: [ "bbot" ],
 		regex: /^\[(?<nick>[^\]]+)\] \([^)]+\): (?<content>.*)/,
@@ -116,7 +116,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "LST",
-		site: "LST",
+		tracker: "LST",
 		description: "[nick] message",
 		matches: [ "bot" ],
 		regex: /^\[(?<nick>[^:\]]+)\] (?<content>.*)/,
@@ -127,7 +127,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "Luminarr",
-		site: "LUME",
+		tracker: "LUME",
 		description: "[nick] message",
 		matches: [ "luminarr" ],
 		regex: /^\[(?<nick>[^:\]]+)\] (?<content>.*)/,
@@ -138,7 +138,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "MidnightScene",
-		site: "MNS",
+		tracker: "MNS",
 		description: "[nick]: message",
 		matches: [ "msbridge" ],
 		regex: /^\[(?<nick>[^:\]]+)\]: (?<content>.*)/,
@@ -149,7 +149,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "OnlyEncodes+",
-		site: "OE+",
+		tracker: "OE+",
 		description: "[nick] message",
 		matches: [ "bridgebot" ],
 		regex: /^\[(?<nick>[^:\]]+)\] (?<content>.*)/,
@@ -160,7 +160,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "ReelFliX",
-		site: "RFX",
+		tracker: "RFX",
 		description: "[Chatbox] <nick>: <message>",
 		matches: [ "wall-e" ],
 		regex: /^04\[Chatbox\] (?<nick>[^:]+): (?<content>.*)/,
@@ -171,7 +171,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "RocketHD",
-		site: "RHD",
+		tracker: "RHD",
 		description: "🛰️<nick>: <message>",
 		matches: [ "rocketnouncer" ],
 		regex: /^🛰️(?<nick>[^:]+?): (?<content>.*)/v,
@@ -182,7 +182,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "SkipTheCommercial",
-		site: "STC",
+		tracker: "STC",
 		description: "nick: message",
 		matches: [ "unit3dbridge" ],
 		regex: /^(?<nick>[^\]]+): (?<content>.*)/,
@@ -193,7 +193,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "UploadCX",
-		site: "ULCX",
+		tracker: "ULCX",
 		description: "[nick]: message",
 		matches: [ "ulcx" ],
 		regex: /^\[(?<nick>[^:\]]+)\]: (?<content>.*)/,
@@ -204,7 +204,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "YUSCENE",
-		site: "YUS",
+		tracker: "YUS",
 		description: "[nick] message",
 		matches: [ "yus" ],
 		regex: /^\[(?<nick>[^:\]]+)\] (?<content>.*)/,
@@ -215,7 +215,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "Zenith",
-		site: "ZNTH",
+		tracker: "ZNTH",
 		description: "[nick]: message",
 		matches: [ "zenith" ],
 		regex: /^\[(?<nick>[^:\]]+)\]: (?<content>.*)/,

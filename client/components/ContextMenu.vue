@@ -223,19 +223,21 @@ export default defineComponent({
 		};
 
 		const openUserContextMenu = (data: {
-			user: Pick<ClientUser, "nick" | "modes">;
+			user: Pick<ClientUser, "nick" | "modes"> & {tracker?: string};
 			event: MouseEvent;
 		}) => {
 			const {network, channel} = store.state.activeChannel!;
+			const user = channel.users.find((u) => u.nick === data.user.nick) || {
+				nick: data.user.nick,
+				modes: [],
+			};
 
 			const newItems = generateUserContextMenu(
 				store,
 				channel,
 				network,
-				channel.users.find((u) => u.nick === data.user.nick) || {
-					nick: data.user.nick,
-					modes: [],
-				}
+				// A user bridged from a tracker's shoutbox keeps which tracker that is
+				data.user.tracker ? {...user, tracker: data.user.tracker} : user
 			);
 			open(data.event, newItems);
 		};

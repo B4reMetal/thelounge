@@ -6,13 +6,13 @@ interface BaseMatcher {
 	name: string;
 	description: string;
 	/**
-	 * `abbreviation` of the tracker's entry in config.js `torrentSites`. The
-	 * matcher then only applies on networks (and in channels) configured for
-	 * that tracker. Matchers without `site` are unscoped: they apply in every
-	 * channel on every network, so set it as soon as the tracker's IRC host is
-	 * known.
+	 * Id of the tracker's entry in config.js `trackers`. The matcher then
+	 * only applies on the network (and in the channels) of that tracker, and
+	 * the users it finds get a link to their profile there. Matchers without
+	 * `tracker` are unscoped: they apply in every channel on every network,
+	 * so set it as soon as the tracker's IRC host is known.
 	 */
-	site?: string;
+	tracker?: string;
 	transform: (message: SharedMsg) => MessageEdit | undefined;
 };
 

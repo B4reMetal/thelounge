@@ -2,18 +2,18 @@ import type { SharedMsg } from "../../../../shared/types/msg";
 import { ChanType } from "../../../../shared/types/chan";
 import type { ClientChan, ClientNetwork } from "../../types";
 import { toRaw } from "vue";
-import { torrentSiteAppliesTo } from "../trackerProfile";
+import { findTracker } from "../trackerProfile";
 import { matchers } from "./matchers";
 import { type Matcher } from "./types/matcher";
 
 /**
  * Parse message aganst `Matchers` and edit the Nick and Content based on `transform` results.
- * Only messages in channels are considered, and matchers with a `site` only
- * apply on the network/channels configured for that tracker in `torrentSites`.
+ * Only messages in channels are considered, and matchers with a `tracker` only
+ * apply on the network/channels configured for that tracker in `trackers`.
  */
 export function parser (
 	originalMessage: SharedMsg,
-	network: Pick<ClientNetwork, "torrentSites">,
+	network: Pick<ClientNetwork, "trackers">,
 	channel: Pick<ClientChan, "type" | "name"> | undefined
 ) {
 	const originalSender = originalMessage.from?.nick?.toLowerCase();
@@ -43,7 +43,9 @@ export function parser (
 		nick: sanitizeNick(edit.nick),
 		mode: "",
 		shoutbox: true,
-		original_nick: originalSender
+		original_nick: originalSender,
+		// Whose user this is, so their profile can be linked
+		tracker: matcher.tracker
 	};
 
 	return message;
@@ -51,20 +53,14 @@ export function parser (
 
 /**
  * Whether `matcher` may run on this network/channel. Unscoped matchers (no
- * `site`) always may; scoped ones need their tracker in `network.torrentSites`.
+ * `tracker`) always may; scoped ones need their tracker in `network.trackers`.
  */
 function inScope (
 	matcher: Matcher,
-	network: Pick<ClientNetwork, "torrentSites">,
+	network: Pick<ClientNetwork, "trackers">,
 	channel: Pick<ClientChan, "type" | "name">
 ) {
-	if (!matcher.site) return true;
-
-	const site = matcher.site.toLowerCase();
-
-	return (network.torrentSites ?? []).some(s =>
-		s.abbreviation?.toLowerCase() === site && torrentSiteAppliesTo(s, channel)
-	);
+	return !matcher.tracker || findTracker(network, channel, matcher.tracker) !== undefined;
 }
 
 /**

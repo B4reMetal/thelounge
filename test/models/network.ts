@@ -437,7 +437,7 @@ describe("Network", function () {
 					"name",
 					"serverOptions",
 					"uuid",
-					"torrentSites"
+					"trackers"
 				);
 
 			expect(clone.status).to.be.an("object").that.has.all.keys("connected", "secure");

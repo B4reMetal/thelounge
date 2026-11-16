@@ -290,7 +290,14 @@ class Uploader {
 		const formData = new FormData();
 		formData.append("file", file);
 
-		this.xhr.open("POST", `uploads/${uploadEndpoint}/${token}${ttl ? `/${ttl}` : ""}`);
+		// The token may contain characters that are not path-safe (e.g. "/" from the
+		// base64 encoded upload URL), so it must be encoded as a single path segment
+		this.xhr.open(
+			"POST",
+			`uploads/${uploadEndpoint}/${encodeURIComponent(token)}${
+				ttl ? `/${encodeURIComponent(ttl)}` : ""
+			}`
+		);
 		this.xhr.send(formData);
 	}
 

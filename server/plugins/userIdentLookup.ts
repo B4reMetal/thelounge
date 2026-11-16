@@ -13,6 +13,13 @@ type Pending = {
 // How long a WHOIS sent from here may take to be answered
 const timeoutMs = 5000;
 
+// Lookups that may wait for a WHOIS at once on one network
+const maxPendingPerNetwork = 5;
+
+// What could be a nick: no spaces, commas, control characters or wildcards,
+// which would make the WHOIS about something else
+const nickLike = /^[^\s,*?!@#&:\p{Cc}][^\s,*?!@\p{Cc}]{0,63}$/u;
+
 /**
  * Finds out the ident and hostname of a user on a network, for tracker profile
  * links that are built from them.
@@ -30,6 +37,10 @@ class UserIdentLookup {
 	}
 
 	lookup(network: Network, nick: string): Promise<UserIdent | null> {
+		if (!nickLike.test(nick)) {
+			return Promise.resolve(null);
+		}
+
 		for (const chan of network.channels) {
 			const user = chan.findUser(nick);
 
@@ -51,6 +62,16 @@ class UserIdentLookup {
 
 			if (waiting) {
 				waiting.resolve.push(resolve);
+				return;
+			}
+
+			const networkPrefix = this.key(network, "");
+			const pendingHere = Array.from(this.pending.keys()).filter((k) =>
+				k.startsWith(networkPrefix)
+			).length;
+
+			if (pendingHere >= maxPendingPerNetwork) {
+				resolve(null);
 				return;
 			}
 

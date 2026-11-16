@@ -602,7 +602,13 @@ class Client {
 		);
 	}
 
-	async more(data: {target: number; lastId: number; condensed: boolean; beforeTime?: number}) {
+	async more(data: {
+		target: number;
+		lastId: number;
+		lastTime?: number;
+		condensed: boolean;
+		beforeTime?: number;
+	}) {
 		const target = this.find(data.target);
 
 		if (!target) {
@@ -621,7 +627,15 @@ class Client {
 		if (data.lastId < 0) {
 			index = chan.messages.length;
 		} else {
-			index = chan.messages.findIndex((val) => val.id === data.lastId);
+			// Ids repeat across a channel's history, so the time the client
+			// sends along tells which message it means. Clients that don't
+			// send one are matched by id alone, as before.
+			index = chan.messages.findIndex(
+				(val) =>
+					val.id === data.lastId &&
+					(typeof data.lastTime !== "number" ||
+						new Date(val.time).getTime() === data.lastTime)
+			);
 		}
 
 		// If requested id is not found, an empty array will be sent
@@ -716,11 +730,17 @@ class Client {
 		const covered = this.massEventAggregator.coveredByMassEvent(chan);
 		const fresh = rows.filter((m) => !known.has(messageKey(m)) && !covered(m));
 
+		// The extra rows were only room for duplicates. Whatever is left of
+		// them goes with the next page: keep the newest, which continue
+		// straight on from what the client holds.
+		const page = fresh.slice(-wanted);
+
 		return {
-			messages: fresh,
-			// A full read means storage has more. Requiring something new
-			// keeps a client from asking for the same page forever.
-			hasMore: rows.length >= limit && fresh.length > 0,
+			messages: page,
+			// A full read, or rows held back here, means storage has more.
+			// Requiring something new keeps a client from asking for the
+			// same page forever.
+			hasMore: fresh.length > 0 && (rows.length >= limit || fresh.length > wanted),
 		};
 	}
 

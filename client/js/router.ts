@@ -15,6 +15,7 @@ import AppearanceSettings from "../components/Settings/Appearance.vue";
 import GeneralSettings from "../components/Settings/General.vue";
 import AccountSettings from "../components/Settings/Account.vue";
 import NotificationSettings from "../components/Settings/Notifications.vue";
+import TrackerSettings from "../components/Settings/Trackers.vue";
 import {ClientChan} from "./types";
 import {leaveHistorySlice, trimMessages} from "./chan";
 import {shouldShowGeneralSettings} from "./helpers/settingsTabs";
@@ -74,6 +75,11 @@ const router = createRouter({
 					name: "Notifications",
 					path: "notifications",
 					component: NotificationSettings,
+				},
+				{
+					name: "Trackers",
+					path: "trackers",
+					component: TrackerSettings,
 				},
 			],
 		},

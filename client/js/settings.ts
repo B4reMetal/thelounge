@@ -199,6 +199,10 @@ const defaultConfig = {
 	replyToMessagePlainText: {
 		default: false,
 	},
+	// Trackers the user added or changed, as JSON (see shared/trackers.ts)
+	userTrackers: {
+		default: "",
+	},
 };
 
 export const config = normalizeConfig(defaultConfig);

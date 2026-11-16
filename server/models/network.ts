@@ -549,6 +549,8 @@ class Network {
 		return {
 			uuid: this.uuid,
 			name: this.name,
+			// Where trackers the user adds in their settings say they belong
+			host: this.host,
 			nick: this.nick,
 			serverOptions: this.serverOptions,
 			status: this.getNetworkStatus(),

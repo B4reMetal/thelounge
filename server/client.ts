@@ -704,32 +704,42 @@ class Client {
 			return {messages: [], hasMore: older.length > 0};
 		}
 
-		// Rows sharing the anchor's millisecond come back too and are dropped
-		// below, so leave room for them
-		const limit = wanted + 50;
-		const rows = await provider.getMessagesBefore(
-			network.uuid,
-			chan.name,
-			anchor,
-			limit,
-			true
-		);
-
 		const known = new Set(chan.messages.map(messageKey));
 		const covered = this.massEventAggregator.coveredByMassEvent(chan);
-		const fresh = rows.filter((m) => !known.has(messageKey(m)) && !covered(m));
+		const isFresh = (m: Msg) => !known.has(messageKey(m)) && !covered(m);
 
-		// The extra rows were only room for duplicates. Whatever is left of
-		// them goes with the next page: keep the newest, which continue
-		// straight on from what the client holds.
-		const page = fresh.slice(-wanted);
+		// Rows sharing the anchor's millisecond: the client may hold only
+		// some of them, and drops the ones it has by id and time. They are
+		// read apart from the page itself, as they don't move paging on.
+		const atAnchor = (
+			await provider.getMessagesBefore(network.uuid, chan.name, anchor, 500, true)
+		).filter((m) => new Date(m.time).getTime() === anchor && isFresh(m));
+
+		// The page: up to `wanted` rows strictly older than the anchor. A read
+		// with nothing in it to send (rows of a mass event that is shown as
+		// its summary) is stepped over, so paging doesn't end there.
+		let before = anchor;
+		let older: Msg[] = [];
+		let full = false;
+
+		for (let reads = 0; reads < 20; reads++) {
+			const rows = await provider.getMessagesBefore(network.uuid, chan.name, before, wanted);
+
+			full = rows.length >= wanted;
+			older = rows.filter(isFresh);
+
+			if (older.length > 0 || !full) {
+				break;
+			}
+
+			before = new Date(rows[0].time).getTime();
+		}
 
 		return {
-			messages: page,
-			// A full read, or rows held back here, means storage has more.
-			// Requiring something new keeps a client from asking for the
-			// same page forever.
-			hasMore: fresh.length > 0 && (rows.length >= limit || fresh.length > wanted),
+			messages: older.concat(atAnchor),
+			// A full read means storage may have more. Requiring something
+			// older keeps a client from asking for the same page forever.
+			hasMore: full && older.length > 0,
 		};
 	}
 

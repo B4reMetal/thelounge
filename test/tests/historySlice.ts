@@ -2,6 +2,7 @@ import {expect} from "chai";
 
 import {
 	leaveHistorySlice,
+	prependMessages,
 	receiveLiveMessage,
 	showMessagesAfter,
 	showMessagesAround,
@@ -61,6 +62,34 @@ describe("History slices (jump to message)", function () {
 
 		expect(channel.historySlice).to.not.equal(undefined);
 		expect(channel.messages).to.have.lengthOf(3);
+	});
+
+	it("keeps a reused id when adding connected history in front", function () {
+		// id 950 again, from an earlier run of the server, next to messages that connect
+		const old = {...msg(950), time: new Date(899500)} as SharedMsg;
+		const channel = channelWith(range(900, 1000));
+
+		showMessagesAround(channel, {
+			messages: [msg(899), old, msg(900)],
+			hasMoreBefore: true,
+			hasMoreAfter: true,
+		});
+
+		expect(channel.historySlice).to.equal(undefined);
+		expect(channel.messages.slice(0, 3)).to.deep.equal([msg(899), old, msg(900)]);
+		expect(channel.messages).to.have.lengthOf(103);
+	});
+
+	it("prepends older pages by id and time", function () {
+		const channel = channelWith(range(900, 1000));
+		const old = {...msg(950), time: new Date(100 * 1000)} as SharedMsg;
+
+		// a page the client already has part of, plus a different message reusing an id
+		const added = prependMessages(channel, [old, ...range(890, 905)]);
+
+		expect(added).to.equal(11);
+		expect(channel.messages[0]).to.equal(old);
+		expect(ids(channel).slice(1)).to.deep.equal(range(890, 1000).map((m) => m.id));
 	});
 
 	it("keeps live messages out of a slice and adds them once it reaches the present", function () {

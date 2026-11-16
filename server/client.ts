@@ -10,6 +10,7 @@ import Chan, {ChanConfig} from "./models/chan.js";
 import Msg from "./models/msg.js";
 import Config from "./config.js";
 import {condensedTypes} from "../shared/irc.js";
+import {messageKey} from "../shared/messageKey.js";
 import {MessageType} from "../shared/types/msg.js";
 import {SharedMention} from "../shared/types/mention.js";
 
@@ -694,9 +695,9 @@ class Client {
 			true
 		);
 
-		const known = new Set(chan.messages.map((m) => m.id));
+		const known = new Set(chan.messages.map(messageKey));
 		const covered = this.massEventAggregator.coveredByMassEvent(chan);
-		const fresh = rows.filter((m) => !known.has(m.id) && !covered(m));
+		const fresh = rows.filter((m) => !known.has(messageKey(m)) && !covered(m));
 
 		return {
 			messages: fresh,

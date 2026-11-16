@@ -36,7 +36,12 @@ export function parser (originalMessage: SharedMsg) {
 
 /**
  * Helper to remove invalid chars from nick string
+ *
+ * Keeps letters, digits and the IRC nick special characters
+ * (underscore, hyphen, square brackets, backslash, backtick, caret, braces and
+ * pipe). This is the same set `findNames` treats as part of a nick, so bridged
+ * nicks added to the user list can still be matched as mentions.
  */
 function sanitizeNick (nick: string) {
-	return nick.replaceAll(/[^0-9a-z_-|]/gi, "");
+	return nick.replaceAll(/[^\p{Letter}\p{Number}_\-[\]\\`^{|}]/gu, "");
 }

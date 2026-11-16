@@ -131,6 +131,13 @@ async function migrateUser(manager: ClientManager, user: string) {
 
 	const sqlite = new SqliteMessageStorage(user);
 	await sqlite.enable(); // enable runs migrations
+
+	// The server would build the search index in the background; there's
+	// no one to keep waiting here, so finish it now
+	if (!sqlite.searchIndexReady) {
+		await sqlite.finishSearchIndex();
+	}
+
 	await sqlite.close();
 	log.info("user", user, "migrated successfully");
 }

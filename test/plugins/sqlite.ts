@@ -337,6 +337,147 @@ describe("SQLite databases from other builds", function () {
 	}
 });
 
+describe("SQLite background search index", function () {
+	this.timeout(20000);
+	let dir: string;
+	let file: string;
+	const stores: MessageStorage[] = [];
+	const total = 3000;
+
+	// A history from before the search index, as this fork stored it
+	beforeEach(function () {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "thelounge-fts-"));
+		file = path.join(dir, "user.sqlite3");
+		const db = new Database(file);
+
+		for (const stmt of [...baseTables, ...otherBuilds[1].indexes]) {
+			db.exec(stmt);
+		}
+
+		db.prepare(
+			"INSERT INTO options (name, value) VALUES ('schema_version', '1794816000000')"
+		).run();
+
+		const insert = db.prepare(
+			"INSERT INTO messages (network, channel, time, type, msg) VALUES ('net', ?, ?, ?, ?)"
+		);
+
+		db.transaction(() => {
+			for (let i = 0; i < total; i++) {
+				// Every tenth row is a join, which isn't searchable
+				const isJoin = i % 10 === 9;
+				insert.run(
+					i < total / 2 ? "#first" : "#second",
+					1700000000000 + i,
+					isJoin ? "join" : "message",
+					JSON.stringify(isJoin ? {} : {text: `stored line ${i}`})
+				);
+			}
+		})();
+		db.close();
+	});
+
+	afterEach(async function () {
+		for (const store of stores.splice(0)) {
+			await store.close();
+		}
+
+		fs.rmSync(dir, {recursive: true, force: true});
+	});
+
+	const open = async () => {
+		const store = new MessageStorage("backfill");
+		stores.push(store);
+		await store._enable(file);
+		store.initDone.resolve();
+		return store;
+	};
+
+	// Rows the index has for a term, straight from the index
+	const indexed = (store: MessageStorage, term: string) =>
+		store.database
+			.prepare("SELECT count(*) FROM messages_fts WHERE messages_fts MATCH ?")
+			.pluck()
+			.get(trigramQuery(term)) as number;
+
+	const search = async (store: MessageStorage, term: string, channelName = "") =>
+		(
+			await store.search({searchTerm: term, networkUuid: "net", channelName, offset: 0})
+		).results.map((m) => m.text);
+
+	const searchable = Math.round(total * 0.9);
+
+	it("should open at once and build the index in the background", async function () {
+		const store = await open();
+
+		expect(store.searchIndexReady).to.equal(false);
+		expect(await search(store, "line 1234")).to.deep.equal(["stored line 1234"]);
+
+		// Left to its timers, it finishes on its own
+		for (let i = 0; i < 400 && !store.searchIndexReady; i++) {
+			await new Promise((r) => setTimeout(r, 10));
+		}
+
+		expect(store.searchIndexReady).to.equal(true);
+		expect(indexed(store, "stored line")).to.equal(searchable);
+		expect(await search(store, "line 1234")).to.deep.equal(["stored line 1234"]);
+		expect(
+			store.database
+				.prepare("SELECT count(*) FROM options WHERE name LIKE 'fts_backfill_%'")
+				.pluck()
+				.get()
+		).to.equal(0);
+	});
+
+	it("should index live messages and deletes while it builds", async function () {
+		const store = await open();
+
+		await store.index(
+			{uuid: "net"} as Network,
+			{name: "#second"} as Channel,
+			new Msg({
+				type: MessageType.MESSAGE,
+				time: new Date(1800000000000),
+				text: "a brand new line",
+			})
+		);
+		await store.deleteChannel({uuid: "net"} as Network, {name: "#first"} as Channel);
+		await store.finishSearchIndex();
+
+		const left = store.database
+			.prepare("SELECT count(*) FROM messages WHERE type = 'message'")
+			.pluck()
+			.get() as number;
+
+		expect(indexed(store, "line")).to.equal(left);
+		expect(await search(store, "brand new")).to.deep.equal(["a brand new line"]);
+		expect(await search(store, "line 12")).to.deep.equal([]);
+		store.database.exec("INSERT INTO messages_fts(messages_fts) VALUES('integrity-check')");
+	});
+
+	it("should continue where it left off after a restart", async function () {
+		const first = await open();
+		const backfill = () => (first as unknown as {backfill: {rows: number}}).backfill;
+
+		// Two small steps; the step size would otherwise grow to fit 40ms
+		for (let step = 0; step < 2; step++) {
+			backfill().rows = 500;
+			first.buildSearchIndexStep();
+		}
+
+		await first.close();
+
+		const store = await open();
+		expect(store.searchIndexReady).to.equal(false);
+		expect(indexed(store, "stored line")).to.be.within(1, searchable - 1);
+
+		await store.finishSearchIndex();
+		expect(indexed(store, "stored line")).to.equal(searchable);
+		expect(await search(store, "line 2999")).to.deep.equal([]);
+		expect(await search(store, "line 2998")).to.deep.equal(["stored line 2998"]);
+	});
+});
+
 describe("SQLite Message Storage", function () {
 	// Increase timeout due to unpredictable I/O on CI services
 	this.timeout(util.isRunningOnCI() ? 25000 : 5000);
@@ -774,6 +915,13 @@ describe("SQLite Message Storage", function () {
 
 		await store.run_migrations();
 
+		// Indexed in the background; search reads the messages until then
+		expect(store.searchIndexReady).to.equal(false);
+		expect(await findEveryWay("brown fox")).to.deep.equal(["The quick brown fox"]);
+
+		await store.finishSearchIndex();
+
+		expect(store.searchIndexReady).to.equal(true);
 		expect(indexHits("brown fox")).to.equal(1);
 		expect(await findEveryWay("brown fox")).to.deep.equal(["The quick brown fox"]);
 	});

@@ -31,6 +31,18 @@ const ftsTable =
 const ftsDeleteTrigger =
 	"CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages WHEN old.type = 'message' BEGIN DELETE FROM messages_fts WHERE rowid = old.id; END";
 
+// Marks every message stored so far as still to be indexed: ids from
+// fts_backfill_next up to fts_backfill_end. Newer messages are indexed when
+// they are stored. Both options are removed once the index is complete.
+const ftsBackfillStmts = [
+	"INSERT OR REPLACE INTO options (name, value) VALUES ('fts_backfill_next', '0')",
+	"INSERT OR REPLACE INTO options (name, value) SELECT 'fts_backfill_end', CAST(coalesce(max(id), 0) AS TEXT) FROM messages",
+];
+
+// How long one step of the background index build may hold the server up.
+// Steps are sized to fit it, and the server gets a turn in between.
+const ftsBackfillStepMs = 40;
+
 // How many index hits each search strategy is used for. Exported so tests can
 // force a strategy; the values come from measurements on a 3M message history.
 export const searchLimits = {
@@ -128,8 +140,11 @@ export const migrations: Migration[] = [
 		version: 1794820000000,
 		stmts: [
 			ftsTable,
-			// Takes roughly 5 seconds per million messages
-			"INSERT INTO messages_fts(rowid, text) SELECT id, json_extract(msg, '$.text') FROM messages WHERE type = 'message' AND json_type(msg, '$.text') = 'text'",
+			// The existing messages are indexed afterwards, in the background
+			// (see buildSearchIndexStep): doing it here took about 5 seconds
+			// per million messages, with the whole server waiting. Messages
+			// stored from now on are indexed as they come in.
+			...ftsBackfillStmts,
 			ftsDeleteTrigger,
 		],
 	},
@@ -166,7 +181,11 @@ export const rollbacks: Rollback[] = [
 	},
 	{
 		version: 1794820000000,
-		stmts: ["DROP TRIGGER messages_fts_delete", "DROP TABLE messages_fts"],
+		stmts: [
+			"DROP TRIGGER messages_fts_delete",
+			"DROP TABLE messages_fts",
+			"DELETE FROM options WHERE name IN ('fts_backfill_next', 'fts_backfill_end')",
+		],
 	},
 ];
 
@@ -205,6 +224,19 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 	private insertStmt: Database.Statement | null = null;
 	private ftsInsertStmt: Database.Statement | null = null;
 
+	// False while existing messages are still being added to the search
+	// index in the background. Search reads every message until then.
+	searchIndexReady = true;
+	private finishing = false;
+	private backfill: {
+		timer: NodeJS.Timeout | null;
+		rows: number; // rows per step, adjusted to ftsBackfillStepMs
+		first: number;
+		end: number;
+		started: number;
+		lastLog: number;
+	} | null = null;
+
 	constructor(userName: string) {
 		this.userName = userName;
 		this.isEnabled = false;
@@ -230,6 +262,169 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		}
 
 		this.isEnabled = true;
+		this.startSearchIndexBuild();
+	}
+
+	private option(name: string): string | undefined {
+		return this.database
+			.prepare("SELECT value FROM options WHERE name = ?")
+			.pluck()
+			.get(name) as string | undefined;
+	}
+
+	/**
+	 * Adds the messages stored before the search index existed to it, a step
+	 * at a time between other work, so the server is usable meanwhile. Picks
+	 * up where it left off after a restart. Search reads every message (as it
+	 * always did) until the index is complete.
+	 */
+	private startSearchIndexBuild() {
+		if (this.backfill) {
+			return;
+		}
+
+		const next = this.option("fts_backfill_next");
+		const end = this.option("fts_backfill_end");
+
+		if (next === undefined || end === undefined) {
+			this.searchIndexReady = true;
+			return;
+		}
+
+		this.searchIndexReady = false;
+		this.backfill = {
+			timer: null,
+			rows: 2000,
+			first: Number(next),
+			end: Number(end),
+			started: Date.now(),
+			lastLog: Date.now(),
+		};
+
+		// A larger page cache keeps the index's pages in memory between steps
+		// instead of re-reading them, which is most of the cost on slow disks.
+		// 64 MiB, back to the default once the index is complete.
+		this.database.pragma("cache_size = -65536");
+
+		log.info(
+			this.finishing
+				? `Building the search index for ${this.userName}`
+				: `Building the search index for ${this.userName} in the background, search is slower until it's done`
+		);
+		this.scheduleSearchIndexStep();
+	}
+
+	private scheduleSearchIndexStep() {
+		if (!this.backfill) {
+			return;
+		}
+
+		// A few ms in between, so that a busy server isn't starved
+		this.backfill.timer = setTimeout(() => {
+			try {
+				if (this.backfill && !this.buildSearchIndexStep()) {
+					this.scheduleSearchIndexStep();
+				}
+			} catch (err) {
+				log.error(
+					`Building the search index for ${this.userName} failed, search stays slow:`,
+					String(err)
+				);
+				this.backfill = null;
+			}
+		}, 5);
+	}
+
+	/**
+	 * Indexes the next batch of messages. Returns true once the index is
+	 * complete.
+	 */
+	buildSearchIndexStep(): boolean {
+		const b = this.backfill;
+
+		if (!b) {
+			return true;
+		}
+
+		const started = Date.now();
+		const next = Number(this.option("fts_backfill_next"));
+		const rows = this.database
+			.prepare(
+				"SELECT id, json_extract(msg, '$.text') AS text FROM messages WHERE id >= ? AND id <= ? AND type = 'message' AND json_type(msg, '$.text') = 'text' ORDER BY id LIMIT ?"
+			)
+			.all(next, b.end, b.rows) as {id: number; text: string}[];
+		const finished = rows.length < b.rows;
+
+		this.database.transaction(() => {
+			for (const row of rows) {
+				this.ftsInsertStmt!.run(row.id, row.text);
+			}
+
+			if (finished) {
+				this.database.exec(
+					"DELETE FROM options WHERE name IN ('fts_backfill_next', 'fts_backfill_end')"
+				);
+			} else {
+				this.database
+					.prepare("UPDATE options SET value = ? WHERE name = 'fts_backfill_next'")
+					.run(String(rows[rows.length - 1].id + 1));
+			}
+		})();
+
+		if (finished) {
+			this.searchIndexReady = true;
+			this.backfill = null;
+			this.database.pragma("cache_size = -2000");
+			log.info(
+				`Search index for ${this.userName} is complete (took ${((Date.now() - b.started) / 1000).toFixed(0)}s)`
+			);
+			return true;
+		}
+
+		// Aim each step at ftsBackfillStepMs, unless nothing else is waiting
+		if (!this.finishing) {
+			const took = Math.max(1, Date.now() - started);
+			b.rows = Math.min(
+				50000,
+				Math.max(200, Math.round((b.rows * ftsBackfillStepMs) / took))
+			);
+		}
+
+		if (Date.now() - b.lastLog > 30000) {
+			b.lastLog = Date.now();
+			const at = rows[rows.length - 1].id;
+			const percent = b.end > b.first ? ((at - b.first) / (b.end - b.first)) * 100 : 100;
+			log.info(`Search index for ${this.userName}: ${percent.toFixed(0)}%`);
+		}
+
+		return false;
+	}
+
+	/**
+	 * Finishes the search index build in one go, for the command line and
+	 * tests. Resolves at once if the index is complete.
+	 */
+	async finishSearchIndex() {
+		this.finishing = true;
+		this.startSearchIndexBuild();
+
+		if (this.backfill?.timer) {
+			clearTimeout(this.backfill.timer);
+		}
+
+		if (this.backfill) {
+			// No one is waiting on the server here, so take bigger steps
+			this.backfill.rows = 50000;
+		}
+
+		try {
+			while (!this.buildSearchIndexStep()) {
+				// Let anything else that's queued run between steps
+				await new Promise((resolve) => setImmediate(resolve));
+			}
+		} finally {
+			this.finishing = false;
+		}
 	}
 
 	async enable() {
@@ -348,6 +543,12 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 		await this.serialize_run("COMMIT");
 
+		// On an open store, start indexing what the migration left to index.
+		// _enable() does it once it has prepared its statements.
+		if (this.ftsInsertStmt) {
+			this.startSearchIndexBuild();
+		}
+
 		// No VACUUM here: it rewrites the whole file, which on a large history
 		// takes as long as the migration itself and needs that much free disk
 		// space again, while none of the migrations free up space worth
@@ -380,6 +581,12 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			this.batchTimer = null;
 		}
 
+		// The search index build continues from here on the next start
+		if (this.backfill?.timer) {
+			clearTimeout(this.backfill.timer);
+		}
+
+		this.backfill = null;
 		this.isEnabled = false;
 
 		try {
@@ -813,6 +1020,12 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 	 * or matches more rows than are worth collecting.
 	 */
 	private searchCandidates(term: string): number[] | null {
+		// Until every message is in the index, it can't say where a term
+		// isn't, so search reads the messages themselves
+		if (!this.searchIndexReady) {
+			return null;
+		}
+
 		const match = trigramQuery(term);
 
 		if (match === null) {

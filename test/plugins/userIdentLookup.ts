@@ -91,6 +91,19 @@ describe("UserIdentLookup", function () {
 		lookup.clear();
 	});
 
+	it("never takes a WHOWAS reply for the answer", async function () {
+		const {lookup, network} = setup();
+		const pending = lookup.lookup(network, "gina");
+
+		expect(
+			lookup.handleWhois(network, {nick: "gina", whowas: true, ident: "1", hostname: "h"})
+		).to.equal(false);
+		expect(lookup.handleWhois(network, {nick: "gina", ident: "2", hostname: "h"})).to.equal(
+			true
+		);
+		expect(await pending).to.deep.equal({ident: "2", hostname: "h"});
+	});
+
 	it("leaves a WHOIS reply nobody is waiting for alone", function () {
 		const {lookup, network} = setup();
 
@@ -104,7 +117,7 @@ describe("UserIdentLookup", function () {
 		const pending = lookup.lookup(network, "dave");
 
 		lookup.shownWhoisRequested(network, "Dave");
-		expect(lookup.isHidden(network, "dave")).to.equal(false);
+		expect(lookup.hideNoSuchNick(network, "dave")).to.equal(false);
 
 		expect(lookup.handleWhois(network, {nick: "dave", ident: "7", hostname: "h"})).to.equal(
 			false
@@ -116,11 +129,12 @@ describe("UserIdentLookup", function () {
 		const {lookup, network} = setup();
 		const pending = lookup.lookup(network, "nobody");
 
-		// the "No such nick" error that comes first is hidden as well
-		expect(lookup.isHidden(network, "NoBody")).to.equal(true);
-		expect(lookup.isHidden(network, "somebody")).to.equal(false);
+		// the "No such nick" error that comes first is hidden as well, once
+		expect(lookup.hideNoSuchNick(network, "NoBody")).to.equal(true);
+		expect(lookup.hideNoSuchNick(network, "nobody")).to.equal(false);
+		expect(lookup.hideNoSuchNick(network, "somebody")).to.equal(false);
 		expect(lookup.handleWhois(network, {nick: "nobody", error: true})).to.equal(true);
-		expect(lookup.isHidden(network, "nobody")).to.equal(false);
+		expect(lookup.hideNoSuchNick(network, "nobody")).to.equal(false);
 		expect(await pending).to.equal(null);
 	});
 

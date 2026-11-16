@@ -10,7 +10,7 @@ export default <IrcEventHandler>function (irc, network) {
 		if (
 			data.error === "no_such_nick" &&
 			typeof data.nick === "string" &&
-			this.userIdentLookup.isHidden(network, data.nick)
+			this.userIdentLookup.hideNoSuchNick(network, data.nick)
 		) {
 			return;
 		}

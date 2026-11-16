@@ -8,6 +8,8 @@ type Pending = {
 	// Cleared when the user asks for a WHOIS of the same nick themself
 	// meanwhile, so that reply is shown as usual
 	silent: boolean;
+	// Whether the "No such nick" error of the WHOIS has been hidden already
+	noSuchNickHidden: boolean;
 };
 
 // How long a WHOIS sent from here may take to be answered
@@ -79,6 +81,7 @@ class UserIdentLookup {
 				timer: setTimeout(() => this.finish(key, null), timeoutMs),
 				resolve: [resolve],
 				silent: true,
+				noSuchNickHidden: false,
 			});
 
 			network.irc!.raw("WHOIS", nick);
@@ -98,12 +101,20 @@ class UserIdentLookup {
 	}
 
 	/**
-	 * Whether a reply about `nick` is to be kept out of the client. A WHOIS of
-	 * a nick that doesn't exist is answered with a "No such nick" error ahead
-	 * of the end of the reply, which belongs to the lookup as well.
+	 * Takes a "No such nick" error. Returns true if it must not be shown: a
+	 * WHOIS of a nick that doesn't exist is answered with one ahead of the
+	 * end of the reply, which belongs to the lookup as well. Only one is
+	 * taken per lookup, others are about something else.
 	 */
-	isHidden(network: Network, nick: string) {
-		return this.pending.get(this.key(network, nick))?.silent === true;
+	hideNoSuchNick(network: Network, nick: string) {
+		const waiting = this.pending.get(this.key(network, nick));
+
+		if (!waiting?.silent || waiting.noSuchNickHidden) {
+			return false;
+		}
+
+		waiting.noSuchNickHidden = true;
+		return true;
 	}
 
 	/**
@@ -112,8 +123,19 @@ class UserIdentLookup {
 	 */
 	handleWhois(
 		network: Network,
-		data: {nick: string; error?: boolean; ident?: unknown; hostname?: unknown}
+		data: {
+			nick: string;
+			error?: boolean;
+			whowas?: boolean;
+			ident?: unknown;
+			hostname?: unknown;
+		}
 	): boolean {
+		// Not the answer to a WHOIS, and about someone who may be gone
+		if (data.whowas) {
+			return false;
+		}
+
 		const key = this.key(network, data.nick);
 		const waiting = this.pending.get(key);
 

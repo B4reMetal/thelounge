@@ -264,13 +264,7 @@ export const UploadProviders: UploadProvider[] = [
 				body: payload,
 			});
 
-			const url = await response.text();
-
-			if (!response.ok || !url.startsWith("http")) {
-				throw new Error(url ?? "Unknown Error");
-			}
-
-			const json = await response.json();
+			const json = await response.json().catch(() => null);
 
 			if (!response.ok || json?.success !== true) {
 				throw new Error(json?.description ?? "Unknown Error");

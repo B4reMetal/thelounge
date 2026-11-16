@@ -695,7 +695,8 @@ class Client {
 		);
 
 		const known = new Set(chan.messages.map((m) => m.id));
-		const fresh = rows.filter((m) => !known.has(m.id));
+		const covered = this.massEventAggregator.coveredByMassEvent(chan);
+		const fresh = rows.filter((m) => !known.has(m.id) && !covered(m));
 
 		return {
 			messages: fresh,
@@ -902,6 +903,7 @@ class Client {
 	part(network: Network, chan: Chan) {
 		network.channels = _.without(network.channels, chan);
 		this.mentions = this.mentions.filter((msg) => !(msg.chanId === chan.id));
+		this.massEventAggregator.cleanup(chan.id);
 		chan.destroy();
 		this.save();
 		this.emit("part", {
@@ -929,7 +931,7 @@ class Client {
 
 		this.networks.forEach((network) => {
 			network.quit();
-			network.destroy();
+			network.destroy(this);
 		});
 
 		for (const messageStorage of this.messageStorage) {

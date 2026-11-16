@@ -4,6 +4,7 @@ import Chan from "../../server/models/chan.js";
 import Client from "../../server/client.js";
 import Msg from "../../server/models/msg.js";
 import Config from "../../server/config.js";
+import MassEventAggregator from "../../server/plugins/massEventAggregator.js";
 import {ChanType} from "../../shared/types/chan.js";
 
 // In-memory stand-in for SqliteMessageStorage, holding rows oldest first
@@ -55,6 +56,7 @@ function setup(storedCount: number) {
 		emit: (event: string, data: unknown) => emitted.push({event, data}),
 		find: () => ({network, chan}),
 	});
+	client.massEventAggregator = new MassEventAggregator(client);
 
 	return {stored, provider, chan, network, client: client as Client, emitted};
 }

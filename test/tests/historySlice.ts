@@ -2,10 +2,12 @@ import {expect} from "chai";
 
 import {
 	leaveHistorySlice,
+	liveMessageLimit,
 	prependMessages,
 	receiveLiveMessage,
 	showMessagesAfter,
 	showMessagesAround,
+	trimMessages,
 	withoutCoveredSummaries,
 } from "../../client/js/chan.js";
 import type {ClientChan} from "../../client/js/types";
@@ -279,5 +281,57 @@ describe("History slices (jump to message)", function () {
 			expect(withoutCoveredSummaries(range(100, 300), live)).to.deep.equal(live.slice(1));
 			expect(withoutCoveredSummaries([], live)).to.deep.equal(live);
 		});
+	});
+});
+
+describe("Trimming what the client holds in memory", function () {
+	it("keeps only the newest messages and says there is more", function () {
+		const channel = channelWith(range(1, 300));
+		channel.moreHistoryAvailable = false;
+
+		trimMessages(channel, 100);
+
+		expect(ids(channel)).to.deep.equal(range(201, 300).map((m) => m.id));
+		expect(channel.moreHistoryAvailable).to.equal(true);
+	});
+
+	it("leaves a channel under the limit, or without one, alone", function () {
+		const channel = channelWith(range(1, 50));
+		channel.moreHistoryAvailable = false;
+
+		trimMessages(channel, 100);
+		trimMessages(channel, 0);
+
+		expect(channel.messages).to.have.lengthOf(50);
+		expect(channel.moreHistoryAvailable).to.equal(false);
+	});
+
+	it("never cuts a history slice", function () {
+		const channel = channelWith(range(900, 1000));
+
+		showMessagesAround(channel, {
+			messages: range(100, 300),
+			hasMoreBefore: true,
+			hasMoreAfter: true,
+		});
+
+		trimMessages(channel, 100);
+
+		expect(ids(channel)).to.deep.equal(range(100, 300).map((m) => m.id));
+	});
+
+	it("holds on to everything while the user reads older messages", function () {
+		const channel = channelWith(range(1, 3000));
+
+		channel.scrolledToBottom = false;
+		expect(liveMessageLimit(channel, true)).to.equal(0);
+
+		// e.g. after a jump that added the history around a message
+		trimMessages(channel, liveMessageLimit(channel, true));
+		expect(channel.messages).to.have.lengthOf(3000);
+
+		channel.scrolledToBottom = true;
+		expect(liveMessageLimit(channel, true)).to.equal(1500);
+		expect(liveMessageLimit(channel, false)).to.equal(100);
 	});
 });

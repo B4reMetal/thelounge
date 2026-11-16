@@ -229,6 +229,44 @@ export function leaveHistorySlice(channel: ClientChan): void {
 	channel.moreHistoryAvailable = true;
 }
 
+/**
+ * Drops the oldest messages beyond `limit`. They are paged back in from the
+ * server when scrolled to, and a jump fetches the history around any message,
+ * so there is no reason to hold more than what is likely to be looked at.
+ *
+ * A history slice is never trimmed: its messages are a window into the past
+ * that the user is reading, not the newest part of the channel.
+ */
+export function trimMessages(channel: ClientChan, limit: number): void {
+	if (channel.historySlice || limit <= 0 || channel.messages.length <= limit) {
+		return;
+	}
+
+	channel.messages.splice(0, channel.messages.length - limit);
+	channel.moreHistoryAvailable = true;
+}
+
+/**
+ * How many messages a channel keeps once a live message arrived in it, 0 for
+ * no limit.
+ */
+export function liveMessageLimit(channel: ClientChan, isActiveChannel: boolean): number {
+	if (!isActiveChannel) {
+		// Nobody is looking at it, keep about what opening it shows
+		return 100;
+	}
+
+	if (channel.scrolledToBottom) {
+		// One history page holds up to 1000 messages when status messages
+		// are condensed or hidden
+		return 1500;
+	}
+
+	// The user is reading older messages (possibly a message jumped to),
+	// leave them alone
+	return 0;
+}
+
 export function toClientChan(shared: SharedNetworkChan): ClientChan {
 	const history: string[] = [""].concat(
 		shared.messages

@@ -152,17 +152,6 @@
 				</div>
 			</div>
 		</div>
-		<div v-if="store.state.settings.searchEnabled">
-			<h2>Enhanced search</h2>
-			<label class="opt">
-				<input
-					:checked="store.state.settings.enableEnhancedSearch"
-					type="checkbox"
-					name="enableEnhancedSearch"
-				/>
-				Enable enhanced search with 'Jump to message'
-			</label>
-		</div>
 		<div>
 			<h2>Input</h2>
 			<label class="opt">

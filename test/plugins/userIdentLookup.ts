@@ -66,6 +66,7 @@ describe("UserIdentLookup", function () {
 		const pending = lookup.lookup(network, "dave");
 
 		lookup.shownWhoisRequested(network, "Dave");
+		expect(lookup.isHidden(network, "dave")).to.equal(false);
 
 		expect(lookup.handleWhois(network, {nick: "dave", ident: "7", hostname: "h"})).to.equal(
 			false
@@ -77,7 +78,11 @@ describe("UserIdentLookup", function () {
 		const {lookup, network} = setup();
 		const pending = lookup.lookup(network, "nobody");
 
+		// the "No such nick" error that comes first is hidden as well
+		expect(lookup.isHidden(network, "NoBody")).to.equal(true);
+		expect(lookup.isHidden(network, "somebody")).to.equal(false);
 		expect(lookup.handleWhois(network, {nick: "nobody", error: true})).to.equal(true);
+		expect(lookup.isHidden(network, "nobody")).to.equal(false);
 		expect(await pending).to.equal(null);
 	});
 

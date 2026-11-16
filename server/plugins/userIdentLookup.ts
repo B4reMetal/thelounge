@@ -74,6 +74,15 @@ class UserIdentLookup {
 	}
 
 	/**
+	 * Whether a reply about `nick` is to be kept out of the client. A WHOIS of
+	 * a nick that doesn't exist is answered with a "No such nick" error ahead
+	 * of the end of the reply, which belongs to the lookup as well.
+	 */
+	isHidden(network: Network, nick: string) {
+		return this.pending.get(this.key(network, nick))?.silent === true;
+	}
+
+	/**
 	 * Takes a WHOIS reply. Returns true if it answered a lookup and nothing
 	 * else was waiting for it, in which case it must not be shown.
 	 */

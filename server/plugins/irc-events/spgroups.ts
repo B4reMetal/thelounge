@@ -1,6 +1,6 @@
 import {IrcEventHandler} from "../../client.js";
 import log from "../../log.js";
-import {UserGroup} from "../../../shared/types/chan.js";
+import {normaliseGroups} from "../userGroups.js";
 
 export default <IrcEventHandler>function (irc, network) {
 	// Handle SPGROUPS command from seedpool/enhanced capable servers
@@ -25,24 +25,32 @@ export default <IrcEventHandler>function (irc, network) {
 			return;
 		}
 
+		let data: unknown;
+
 		try {
-			const data = JSON.parse(jsonPayload) as {groups: UserGroup[]};
-
-			if (!data.groups || !Array.isArray(data.groups)) {
-				log.warn("SPGROUPS: Invalid payload format, expected {groups: [...]}");
-				return;
-			}
-
-			// Store groups on the channel, sorted by position (highest first)
-			chan.groups = data.groups.sort((a, b) => b.position - a.position);
-
-			// Emit to client
-			this.emit("channel:groups", {
-				chan: chan.id,
-				groups: chan.groups,
-			});
+			data = JSON.parse(jsonPayload);
 		} catch (err) {
 			log.error(`SPGROUPS: Failed to parse JSON payload: ${String(err)}`);
+			return;
 		}
+
+		const groups =
+			data && typeof data === "object"
+				? normaliseGroups((data as {groups?: unknown}).groups)
+				: null;
+
+		if (!groups) {
+			log.warn("SPGROUPS: Invalid payload format, expected {groups: [...]}");
+			return;
+		}
+
+		// Store only well-formed groups on the channel, sorted by position (highest first)
+		chan.groups = groups;
+
+		// Emit to client
+		this.emit("channel:groups", {
+			chan: chan.id,
+			groups: chan.groups,
+		});
 	});
 };

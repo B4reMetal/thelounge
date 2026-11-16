@@ -7,6 +7,7 @@ import useCloseChannel from "../hooks/use-close-channel";
 import {ChanType} from "../../../shared/types/chan";
 import { openInNewTab } from "./openInNewTab";
 import {getTrackerProfileUrl} from "./trackerProfile";
+import groupSlug from "./groupSlug";
 
 type BaseContextMenuItem = {
 	label: string;
@@ -373,7 +374,7 @@ export function generateUserContextMenu(
 				{
 					label: userGroup,
 					type: "item",
-					class: `group-${userGroup.toLowerCase()}`,
+					class: `group-${groupSlug(userGroup)}`,
 					action () {},
 				},
 				{

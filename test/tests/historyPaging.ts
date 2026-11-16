@@ -207,6 +207,69 @@ describe("History paging", function () {
 		expect(page!.hasMore).to.equal(true);
 	});
 
+	it("pages past any number of rows sharing one millisecond", async function () {
+		const {stored, chan, network, client} = setup(400);
+
+		// rows 101..240 were all stored in the same millisecond
+		for (const m of stored.slice(100, 240)) {
+			m.time = new Date(240 * 1000);
+		}
+
+		chan.loadMessages(client, network as any, true);
+		await settle();
+
+		const seen = new Map<string, number>();
+		let oldest: Msg | undefined;
+		let hasMore = true;
+		let requests = 0;
+
+		while (hasMore) {
+			const page = await client.more({
+				target: chan.id,
+				lastId: oldest ? oldest.id : -1,
+				lastTime: oldest ? oldest.time.getTime() : undefined,
+				condensed: false,
+				beforeTime: oldest ? oldest.time.getTime() : undefined,
+			});
+
+			for (const m of page!.messages) {
+				seen.set(`${m.id}:${m.time.getTime()}`, m.id);
+			}
+
+			oldest = page!.messages[0] ?? oldest;
+			hasMore = page!.hasMore;
+			expect(++requests).to.be.lessThan(20, "paging did not terminate");
+		}
+
+		expect(Array.from(seen.values()).sort((a, b) => a - b)).to.deep.equal(
+			Array.from({length: 400}, (_, i) => i + 1)
+		);
+	});
+
+	it("keeps paging past rows that are shown as a mass event summary", async function () {
+		const {stored, chan, network, client} = setup(400);
+
+		chan.loadMessages(client, network as any, true);
+		await settle();
+
+		// everything between 101 and 300 is hidden behind a summary
+		client.massEventAggregator.coveredByMassEvent = () => (m: Msg) => m.id > 100 && m.id <= 300;
+		chan.messages = chan.messages.filter((m) => m.id > 300);
+
+		const page = await client.more({
+			target: chan.id,
+			lastId: 301,
+			lastTime: 301 * 1000,
+			condensed: false,
+			beforeTime: 301 * 1000,
+		});
+
+		expect(stored).to.have.lengthOf(400);
+		expect(page!.messages.map((m) => m.id)).to.deep.equal(
+			Array.from({length: 100}, (_, i) => i + 1)
+		);
+	});
+
 	it("finds the message to page from by id and time", async function () {
 		const {chan, network, client} = setup(400);
 

@@ -507,4 +507,94 @@ export const UploadProviders: UploadProvider[] = [
 			return url;
 		},
 	},
+	{
+		id: "rustypaste",
+		displayName: "rustypaste",
+		requiresURL: true,
+		requiresToken: true,
+		validTtl: [
+			{
+				id: "default",
+				displayName: "Server Default",
+				value: "-",
+				default: true,
+			},
+			{
+				id: "1hour",
+				displayName: "1 Hour",
+				value: "1h",
+			},
+			{
+				id: "1day",
+				displayName: "1 Day",
+				value: "1d",
+			},
+			{
+				id: "3days",
+				displayName: "3 Days",
+				value: "3d",
+			},
+			{
+				id: "1week",
+				displayName: "1 Week",
+				value: "7d",
+			},
+		],
+		supportNote:
+			"Supported files: Any (subject to the server's configuration)\nUpload API URL is your rustypaste server address. Leave the API Key empty if the server has no auth_tokens configured",
+		async upload(file: File, ttl: string, url_token?: string) {
+			const separatorIndex = url_token!.indexOf("_|_");
+			const encodedRequestURL =
+				separatorIndex === -1 ? url_token! : url_token!.slice(0, separatorIndex);
+			const auth = separatorIndex === -1 ? "" : url_token!.slice(separatorIndex + 3);
+			let requestURL: string;
+
+			try {
+				requestURL = atob(encodedRequestURL);
+			} catch {
+				throw new Error("Invalid Upload URL");
+			}
+
+			if (!requestURL.startsWith("http")) {
+				throw new Error("Invalid Upload URL");
+			}
+
+			const uploadTTL = this.validTtl?.find((t) => t.id === ttl);
+			const headers: Record<string, string> = {};
+
+			// rustypaste uses the last whitespace separated part of the header as the token,
+			// so "Bearer <token>" works with both raw and bearer style configurations
+			if (auth) {
+				headers.authorization = `Bearer ${auth}`;
+			}
+
+			if (uploadTTL && uploadTTL.value !== "-") {
+				headers.expire = uploadTTL.value;
+			}
+
+			const payload = new FormData();
+			payload.append("file", file);
+
+			const response = await fetch(requestURL, {
+				method: "POST",
+				headers,
+				body: payload,
+			});
+
+			const body = (await response.text()).trim();
+
+			if (!response.ok) {
+				throw new Error(body || `Upload failed (HTTP ${response.status})`);
+			}
+
+			// The response is the URL of the uploaded file, one per line
+			const url = body.split("\n")[0].trim();
+
+			if (!url.startsWith("http")) {
+				throw new Error(url || "Unknown Error");
+			}
+
+			return url;
+		},
+	},
 ];

@@ -673,7 +673,7 @@ function initializeClient(
 	// so there's no need to handle msg:preview:toggle
 	if (!Config.values.public) {
 		socket.on("msg:preview:toggle", (data) => {
-			if (_.isPlainObject(data)) {
+			if (!_.isPlainObject(data)) {
 				return;
 			}
 
@@ -941,7 +941,18 @@ function initializeClient(
 	} else if (!token) {
 		client.generateToken((newToken) => {
 			token = client.calculateTokenHash(newToken);
-			client.attachedClients[socket.id].token = token;
+
+			// generateToken is asynchronous, so the socket may have disconnected while it
+			// was running, in which case clientDetach has already removed the attached
+			// client. There is nothing left to hand the token to: the session would record
+			// a connection that is gone and sendInitEvent would emit into a closed socket.
+			const attachedClient = client.attachedClients[socket.id];
+
+			if (!attachedClient) {
+				return;
+			}
+
+			attachedClient.token = token;
 
 			client.updateSession(token, getClientIp(socket), socket.request);
 			sendInitEvent(newToken);
@@ -995,7 +1006,7 @@ function getClientConfiguration(): SharedConfiguration | LockedSharedConfigurati
 
 	// Only send defaults that are visible on the client
 	const defaults: LockedConfigNetDefaults = {
-		..._.omit(Config.values.defaults, ["host", "name", "port", "tls", "rejectUnauthorized"]),
+		..._.omit(Config.values.defaults, ["host", "port", "tls", "rejectUnauthorized"]),
 		...defaultsOverride,
 	};
 

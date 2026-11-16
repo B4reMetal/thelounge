@@ -5,6 +5,14 @@ import log from "../../log.js";
 import Config from "../../config.js";
 import type {AuthHandler} from "../auth.js";
 
+// Escape LDAP filter assertion values per RFC 4515 section 3:
+// https://datatracker.ietf.org/doc/html/rfc4515#section-3
+export function escapeLdapFilter(value: string): string {
+	return value.replace(/[\\*()\0]/g, (c) => {
+		return "\\" + c.charCodeAt(0).toString(16).padStart(2, "0");
+	});
+}
+
 type ErrorWithCode = NodeJS.ErrnoException & Error;
 
 const CONNECTION_ERROR_CODES = new Set([
@@ -135,7 +143,7 @@ function advancedLdapAuth(user: string, password: string, callback: (success: bo
 		const base = config.ldap.searchDN.base;
 		const searchOptions: SearchOptions = {
 			scope: config.ldap.searchDN.scope,
-			filter: `(&(${config.ldap.primaryKey}=${userDN})${config.ldap.searchDN.filter})`,
+			filter: `(&(${config.ldap.primaryKey}=${escapeLdapFilter(user)})${config.ldap.searchDN.filter})`,
 			attributes: ["dn"],
 		};
 

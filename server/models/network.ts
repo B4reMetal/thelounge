@@ -278,6 +278,8 @@ class Network {
 				!Config.values.public &&
 				this.host &&
 				this.host.length > 0 &&
+				// hostnames are case-insensitive; this.host is lowercased above and
+				// defaults.host is normalized to lowercase at config load (server/config.ts)
 				this.host !== Config.values.defaults.host
 			) {
 				error(this, `The hostname you specified (${this.host}) is not allowed.`);
@@ -463,16 +465,16 @@ class Network {
 		// Sync lobby channel name
 		this.getLobby().name = this.name;
 
+		if (!this.validate(client)) {
+			return;
+		}
+
 		if (this.name !== oldNetworkName) {
 			// Send updated network name to all connected clients
 			client.emit("network:name", {
 				uuid: this.uuid,
 				name: this.name,
 			});
-		}
-
-		if (!this.validate(client)) {
-			return;
 		}
 
 		if (this.irc) {
@@ -520,15 +522,15 @@ class Network {
 	setNick(this: Network, nick: string) {
 		this.nick = nick;
 		this.highlightRegex = new RegExp(
-			// Do not match characters and numbers (unless IRC color)
-			"(?:^|[^a-z0-9]|\x03[0-9]{1,2})" +
+			// Do not match letters and numbers (unless IRC color)
+			"(?:^|[^\\p{Letter}\\p{Number}]|\x03[0-9]{1,2})" +
 				// Escape nickname, as it may contain regex stuff
 				_.escapeRegExp(nick) +
-				// Do not match characters and numbers
-				"(?:[^a-z0-9]|$)",
+				// Do not match letters and numbers
+				"(?:[^\\p{Letter}\\p{Number}]|$)",
 
-			// Case insensitive search
-			"i"
+			// Case insensitive Unicode search
+			"iu"
 		);
 
 		if (this.keepNick === nick) {

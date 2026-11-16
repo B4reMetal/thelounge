@@ -1,5 +1,5 @@
 import log from "../../../server/log.js";
-import ldapAuth from "../../../server/plugins/auth/ldap.js";
+import ldapAuth, {escapeLdapFilter} from "../../../server/plugins/auth/ldap.js";
 import Config from "../../../server/config.js";
 import {Client as LdapClient} from "ldapts";
 import {expect} from "chai";
@@ -205,5 +205,29 @@ describe("LDAP authentication plugin", function () {
 			expect(warningMessage).to.equal("LDAP Search did not find anything for: eve\n");
 			expect(warnLogStub.calledOnce).to.equal(true);
 		});
+	});
+});
+
+describe("escapeLdapFilter (RFC 4515)", function () {
+	it("escapes the five required octets", function () {
+		expect(escapeLdapFilter("*")).to.equal("\\2a");
+		expect(escapeLdapFilter("(")).to.equal("\\28");
+		expect(escapeLdapFilter(")")).to.equal("\\29");
+		expect(escapeLdapFilter("\\")).to.equal("\\5c");
+		expect(escapeLdapFilter("\0")).to.equal("\\00");
+	});
+
+	it("leaves ordinary characters untouched", function () {
+		expect(escapeLdapFilter("johndoe")).to.equal("johndoe");
+		expect(escapeLdapFilter("john.doe+tag@example.com")).to.equal("john.doe+tag@example.com");
+	});
+
+	it("escapes every occurrence, not just the first", function () {
+		expect(escapeLdapFilter("a*b*c")).to.equal("a\\2ab\\2ac");
+		expect(escapeLdapFilter("()()")).to.equal("\\28\\29\\28\\29");
+	});
+
+	it("neutralizes a classic injection payload", function () {
+		expect(escapeLdapFilter("*)(uid=*")).to.equal("\\2a\\29\\28uid=\\2a");
 	});
 });

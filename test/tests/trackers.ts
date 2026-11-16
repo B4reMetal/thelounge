@@ -201,6 +201,13 @@ describe("Config trackers", function () {
 			expect(warnings[0]).to.include("torrentSites").and.not.include("Unknown key");
 		});
 
+		it("takes no config at all, as when started without -c options", function () {
+			const before = Config.values.trackers;
+			Config.merge(undefined as unknown as ConfigType);
+
+			expect(Config.values.trackers).to.equal(before);
+		});
+
 		it("turns everything off for torrentSites: null", function () {
 			merge({torrentSites: null});
 

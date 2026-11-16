@@ -248,7 +248,8 @@ class Config {
 			defaultTorrentSiteInfo?: {profileUrl?: string};
 		};
 
-		if (!("torrentSites" in legacy) && !("defaultTorrentSiteInfo" in legacy)) {
+		// No config at all when The Lounge is started without `-c` options
+		if (!legacy || (!("torrentSites" in legacy) && !("defaultTorrentSiteInfo" in legacy))) {
 			return newConfig;
 		}
 

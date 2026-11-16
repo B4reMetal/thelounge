@@ -107,6 +107,41 @@ describe("History paging", function () {
 		);
 	});
 
+	it("keeps a stored message that only shares its id with one in memory", async function () {
+		const {chan, network, client, stored} = setup(50);
+
+		// arrived live, and happens to reuse the id of a stored message
+		// written by an earlier run of the server
+		const live = message(10);
+		live.time = new Date(100 * 1000);
+		chan.messages.push(live);
+
+		chan.loadMessages(client, network as any, true);
+		await settle();
+
+		expect(chan.messages).to.have.lengthOf(51);
+		expect(chan.messages.slice(0, 50)).to.deep.equal(stored);
+		expect(chan.messages[50]).to.equal(live);
+	});
+
+	it("keeps stored pages that share ids with messages in memory", async function () {
+		const {chan, network, client} = setup(400);
+
+		chan.loadMessages(client, network as any, true);
+		await settle();
+
+		// memory holds 251-400. Give one of them the id of an older stored
+		// message, as ids from before they survived restarts can repeat.
+		chan.messages[chan.messages.length - 1].id = 200;
+
+		const page = await client.more({target: chan.id, lastId: 251, condensed: false});
+		const ids = page!.messages.map((m) => m.id);
+
+		expect(ids).to.include(200);
+		expect(ids).to.not.include(251);
+		expect(ids[ids.length - 1]).to.equal(250);
+	});
+
 	it("tells clients when a channel has no stored history", async function () {
 		const {chan, network, client, emitted} = setup(0);
 

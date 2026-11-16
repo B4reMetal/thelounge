@@ -61,17 +61,17 @@
 						>
 							<div
 								v-for="(message, id) in messages"
-								:key="message.id"
+								:key="messageKey(message)"
 								class="result"
 								:data-jump-to="store.state.settings.enableEnhancedSearch || undefined"
 							>
 								<DateMarker
 									v-if="shouldDisplayDateMarker(message, id)"
-									:key="message.id + '-date'"
+									:key="messageKey(message) + '-date'"
 									:message="message"
 								/>
 								<Message
-									:key="message.id"
+									:key="messageKey(message)"
 									:channel="channel"
 									:network="network"
 									:message="message"
@@ -120,6 +120,7 @@ import {useStore} from "../../js/store";
 import {useRoute} from "vue-router";
 import {switchToChannel} from "../../js/router";
 import {SearchQuery} from "../../../shared/types/storage";
+import {messageKey} from "../../../shared/messageKey";
 
 export default defineComponent({
 	name: "SearchResults",
@@ -332,6 +333,7 @@ export default defineComponent({
 			onShowMoreClick,
 			jumpToBottom,
 			jump,
+			messageKey,
 		};
 	},
 });

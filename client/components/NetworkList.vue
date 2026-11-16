@@ -8,7 +8,7 @@
 		You are not connected to any networks yet.
 	</div>
 	<div v-else ref="networklist" role="navigation" aria-label="Network and Channel list">
-		<div v-if="store.state.settings.jumptoEabled" class="jump-to-input">
+		<div v-if="store.state.settings.jumpToEnabled" class="jump-to-input">
 			<label for="channel-search-input" class="sr-only">Search among the channel list</label>
 			<input
 				id="channel-search-input"

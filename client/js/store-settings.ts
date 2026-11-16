@@ -3,6 +3,7 @@ import socket from "./socket";
 import {config, createState, SettingsState} from "./settings";
 import {Store} from "vuex";
 import {State} from "./store";
+import {migrateRenamedSettings} from "../../shared/settings";
 
 export function createSettingsStore(store: Store<State>) {
 	return {
@@ -81,6 +82,11 @@ function loadFromLocalStorage(): Record<string, unknown> {
 
 	if (!storedSettings) {
 		return {};
+	}
+
+	// Settings renamed since they were stored, keep the user's value
+	if (migrateRenamedSettings(storedSettings)) {
+		storage.set("settings", JSON.stringify(storedSettings));
 	}
 
 	// Older The Lounge versions converted highlights to an array, turn it back into a string

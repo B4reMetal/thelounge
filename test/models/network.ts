@@ -210,7 +210,7 @@ describe("Network", function () {
 			});
 
 			// Before the fix this returned false and pushed "...is not allowed."
-			expect(network.validate({} as any)).to.be.true;
+			expect(network.validate({} as any)).to.equal(true);
 			expect(network.host).to.equal("irc.example.com");
 
 			// restore globals for the other tests in this file

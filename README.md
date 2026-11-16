@@ -138,7 +138,9 @@ applies. Options added by this fork are described in the comments in
 - `allowFileUploadBackendSelection`
 - `maskFileHost`
 - `massEventDetection`
-- `defaultTorrentSiteInfo` and `torrentSites` (tracker profile links)
+- `trackers` (tracker profile links and bridge matcher scoping; replaces
+  `torrentSites` and `defaultTorrentSiteInfo`, which are still read from
+  existing configs)
 - `debug.logs`
 
 ## Development

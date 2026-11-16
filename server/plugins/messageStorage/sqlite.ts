@@ -104,10 +104,24 @@ export const migrations: Migration[] = [
 		stmts: ["CREATE INDEX msg_type_idx on messages (type)"],
 	},
 	{
+		// Stock The Lounge 4.5's migration, taken over as is so that a
+		// database it has already upgraded continues from here. Replaces
+		// network_channel, of which it is a strict prefix, and also covers
+		// the time ordering of history queries.
+		version: 1780272000000,
+		stmts: [
+			"CREATE INDEX IF NOT EXISTS network_channel_time ON messages (network, channel, time)",
+			"DROP INDEX IF EXISTS network_channel",
+		],
+	},
+	{
+		// This fork's own version of the migration above, from before stock
+		// had it. It is kept so databases that already ran it see no gap, and
+		// does nothing on top of it.
 		version: 1794816000000,
 		stmts: [
-			"CREATE INDEX network_channel_time ON messages (network, channel, time)",
-			"DROP INDEX network_channel", // strict prefix of the index above
+			"CREATE INDEX IF NOT EXISTS network_channel_time ON messages (network, channel, time)",
+			"DROP INDEX IF EXISTS network_channel",
 		],
 	},
 	{
@@ -137,11 +151,18 @@ export const rollbacks: Rollback[] = [
 		stmts: ["drop INDEX msg_type_idx"],
 	},
 	{
-		version: 1794816000000,
+		version: 1780272000000,
 		stmts: [
-			"CREATE INDEX network_channel ON messages (network, channel)",
-			"DROP INDEX network_channel_time",
+			"DROP INDEX IF EXISTS network_channel_time",
+			"CREATE INDEX IF NOT EXISTS network_channel ON messages (network, channel)",
 		],
+	},
+	{
+		// The index is undone by 1780272000000's rollback above. Databases
+		// that ran this migration before that one existed have its old
+		// rollback steps stored, which do the same thing.
+		version: 1794816000000,
+		stmts: [],
 	},
 	{
 		version: 1794820000000,
@@ -1089,7 +1110,12 @@ export function trigramQuery(term: string): string | null {
 	const trigrams = new Set<string>();
 
 	for (let i = 0; i + 3 <= chars.length; i++) {
-		trigrams.add(`"${chars.slice(i, i + 3).join("").replace(/"/g, '""')}"`);
+		trigrams.add(
+			`"${chars
+				.slice(i, i + 3)
+				.join("")
+				.replace(/"/g, '""')}"`
+		);
 	}
 
 	return Array.from(trigrams).join(" AND ");

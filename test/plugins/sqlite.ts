@@ -1,4 +1,5 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 import {expect} from "chai";
 import util from "../util.ts";
@@ -235,6 +236,105 @@ describe("SQLite unit tests", function () {
 		messages = await store.getMessages(net, chan, () => id++);
 		expect(messages.map((m) => m.type)).to.have.ordered.members([MessageType.AWAY]);
 	});
+});
+
+// Fresh databases as other builds create them, to check that this one takes
+// them over. DO NOT CHANGE: they have to match what those builds wrote.
+const baseTables = [
+	"CREATE TABLE options (name TEXT, value TEXT, CONSTRAINT name_unique UNIQUE (name))",
+	"CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, network TEXT, channel TEXT, time INTEGER, type TEXT, msg TEXT)",
+	"CREATE TABLE migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, version INTEGER NOT NULL UNIQUE, rollback_forbidden INTEGER DEFAULT 0 NOT NULL)",
+	"CREATE TABLE rollback_steps (id INTEGER PRIMARY KEY AUTOINCREMENT, migration_id INTEGER NOT NULL REFERENCES migrations ON DELETE CASCADE, step INTEGER NOT NULL, statement TEXT NOT NULL)",
+];
+
+const otherBuilds = [
+	{
+		name: "stock The Lounge 4.4 / tetrahydroc",
+		version: 1703322560448,
+		indexes: [
+			"CREATE INDEX network_channel ON messages (network, channel)",
+			"CREATE INDEX time ON messages (time)",
+			"CREATE INDEX msg_type_idx on messages (type)",
+		],
+	},
+	{
+		name: "stock The Lounge 4.5",
+		version: 1780272000000,
+		indexes: [
+			"CREATE INDEX time ON messages (time)",
+			"CREATE INDEX msg_type_idx on messages (type)",
+			"CREATE INDEX network_channel_time ON messages (network, channel, time)",
+		],
+	},
+];
+
+describe("SQLite databases from other builds", function () {
+	let dir: string;
+
+	beforeEach(function () {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "thelounge-sqlite-"));
+	});
+
+	afterEach(function () {
+		fs.rmSync(dir, {recursive: true, force: true});
+	});
+
+	for (const build of otherBuilds) {
+		it(`should take over a database from ${build.name}`, async function () {
+			const file = path.join(dir, "user.sqlite3");
+			const db = new Database(file);
+
+			for (const stmt of [...baseTables, ...build.indexes]) {
+				db.exec(stmt);
+			}
+
+			db.prepare("INSERT INTO options (name, value) VALUES ('schema_version', ?)").run(
+				build.version.toString()
+			);
+
+			for (const m of migrations.filter((x) => x.version <= build.version)) {
+				db.prepare("INSERT INTO migrations (version) VALUES (?)").run(m.version);
+			}
+
+			const insert = db.prepare(
+				"INSERT INTO messages (network, channel, time, type, msg) VALUES ('net', '#chan', ?, 'message', ?)"
+			);
+
+			for (let i = 0; i < 20; i++) {
+				insert.run(1700000000000 + i, JSON.stringify({text: `old message ${i}`}));
+			}
+
+			db.close();
+
+			const store = new MessageStorage("otherBuild");
+
+			try {
+				await store._enable(file);
+				store.initDone.resolve();
+
+				expect(await store.current_version()).to.equal(currentSchemaVersion);
+				expect(
+					store.database
+						.prepare(
+							"SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+						)
+						.pluck()
+						.all()
+				).to.deep.equal(["msg_type_idx", "network_channel_time", "time"]);
+
+				// The existing history is searchable through the new index
+				const found = await store.search({
+					searchTerm: "message 13",
+					networkUuid: "net",
+					channelName: "#chan",
+					offset: 0,
+				});
+				expect(found.results.map((m) => m.text)).to.deep.equal(["old message 13"]);
+			} finally {
+				await store.close();
+			}
+		});
+	}
 });
 
 describe("SQLite Message Storage", function () {
@@ -568,7 +668,11 @@ describe("SQLite Message Storage", function () {
 		const found: (string | undefined)[][] = [];
 
 		try {
-			for (const limits of [defaultLimits, {direct: 0, filter: 1000}, {direct: 0, filter: 0}]) {
+			for (const limits of [
+				defaultLimits,
+				{direct: 0, filter: 1000},
+				{direct: 0, filter: 0},
+			]) {
 				Object.assign(searchLimits, limits);
 				found.push(await find(searchTerm, channelName));
 			}
@@ -663,7 +767,9 @@ describe("SQLite Message Storage", function () {
 			.run(previous.toString());
 
 		expect(
-			store.database.prepare("SELECT name FROM sqlite_master WHERE name = 'messages_fts'").all()
+			store.database
+				.prepare("SELECT name FROM sqlite_master WHERE name = 'messages_fts'")
+				.all()
 		).to.have.lengthOf(0);
 
 		await store.run_migrations();

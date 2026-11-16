@@ -1,14 +1,20 @@
 import {expect} from "chai";
 
 import {parser} from "../../client/js/helpers/shoutbox-bridge/parser.js";
+import {ChanType} from "../../shared/types/chan.js";
 import type {SharedMsg} from "../../shared/types/msg";
 
-// "chatbot" is relayed with the "[nick] message" format
+// "chatbot" is relayed with the "[nick] message" format. Its matcher is not
+// tied to a tracker, so it applies in any channel.
 const bridged = (nick: string) =>
-	parser({
-		from: {nick: "chatbot", mode: ""},
-		text: `[${nick}] hello`,
-	} as unknown as SharedMsg);
+	parser(
+		{
+			from: {nick: "chatbot", mode: ""},
+			text: `[${nick}] hello`,
+		} as unknown as SharedMsg,
+		{trackers: undefined},
+		{type: ChanType.CHANNEL, name: "#shoutbox"}
+	);
 
 describe("shoutbox bridge parser", function () {
 	it("keeps hyphens and the other IRC nick characters", function () {

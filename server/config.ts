@@ -15,6 +15,7 @@ import {
 	type LegacyTorrentSite,
 	type TrackerConfig,
 	type TrackerInfo,
+	trackerIdentPlaceholder,
 	trackerNickPlaceholder,
 } from "../shared/types/network.js";
 
@@ -174,6 +175,10 @@ class Config {
 
 			if (isUsableProfileUrl(tracker!.profileUrl)) {
 				info.profileUrl = tracker!.profileUrl;
+
+				if (typeof tracker!.userHost === "string" && tracker!.userHost) {
+					info.userHost = tracker!.userHost;
+				}
 			}
 
 			result.push(info);
@@ -454,14 +459,19 @@ class Config {
 }
 
 // A profile address the client can turn into a link: http(s), with a place
-// for the nick
+// for the nick or the ident
 function isUsableProfileUrl(url: unknown): url is string {
-	if (typeof url !== "string" || !url.includes(trackerNickPlaceholder)) {
+	if (
+		typeof url !== "string" ||
+		!(url.includes(trackerNickPlaceholder) || url.includes(trackerIdentPlaceholder))
+	) {
 		return false;
 	}
 
 	try {
-		const {protocol} = new URL(url.replace(trackerNickPlaceholder, "nick"));
+		const {protocol} = new URL(
+			url.replace(trackerNickPlaceholder, "nick").replace(trackerIdentPlaceholder, "1")
+		);
 		return protocol === "https:" || protocol === "http:";
 	} catch {
 		return false;

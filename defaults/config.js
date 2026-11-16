@@ -407,8 +407,15 @@ export default {
 	// - `channels` (optional): the tracker's channels, for when several trackers
 	//   share one IRC network. Omit if the whole network belongs to the tracker.
 	// - `profileUrl` (optional): address of a user's profile, with `{nick}` where
-	//   the nick goes. Leave it out if profiles can't be found by nick; no link
-	//   is offered then.
+	//   the nick goes. On trackers whose IRC server shows users as
+	//   `<user id>@<name>.<class>.<tracker>`, use `{ident}` for the user id
+	//   instead: The Lounge asks the IRC server who the user is when the link is
+	//   clicked, without showing that anywhere. Leave `profileUrl` out if
+	//   profiles can be found neither way; no link is offered then.
+	// - `userHost` (optional, for `{ident}` addresses): what the hostname of the
+	//   tracker's users looks like, with `*` for any text. A link is only
+	//   offered for users it matches, which also tells the tracker's users
+	//   apart in private messages on a network it shares with others.
 	// - `disabled` (optional): set to `true` to ignore the entry.
 	//
 	// What you set here is merged with the list below, entry by entry, so you
@@ -554,7 +561,26 @@ export default {
 				"#red-ptm",
 				"#red-metadata",
 			],
-			// Profiles on this tracker can't be found by nick
+			profileUrl: "https://redacted.sh/user.php?id={ident}",
+			userHost: "*.redacted.sh",
+		},
+		OPS: {
+			name: "Orpheus",
+			network: "irc.orpheus.network",
+			profileUrl: "https://orpheus.network/user.php?id={ident}",
+			userHost: "*.orpheus.network",
+		},
+		GGN: {
+			name: "GazelleGames",
+			network: "irc.gazellegames.net",
+			profileUrl: "https://gazellegames.net/user.php?id={ident}",
+			userHost: "*.gazellegames.net",
+		},
+		AB: {
+			name: "AnimeBytes",
+			network: "irc.animefriends.moe",
+			profileUrl: "https://animebytes.tv/user.php?id={ident}",
+			userHost: "*.AnimeBytes",
 		},
 		MAM: {
 			name: "MyAnonamouse",

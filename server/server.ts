@@ -915,6 +915,26 @@ function initializeClient(
 			client.save();
 		});
 
+		// Ident and hostname of a user, for a tracker profile link that needs
+		// them. Always answers, so a client waiting on it doesn't wait forever.
+		socket.on("tracker:user", (data) => {
+			if (!_.isPlainObject(data) || typeof data.nick !== "string") {
+				return;
+			}
+
+			const {target, nick} = data;
+			const networkAndChan = client.find(target);
+			// Only trackers have a use for this, don't hand it out elsewhere
+			const lookup =
+				networkAndChan && Config.getTrackersForHost(networkAndChan.network.host)
+					? client.userIdentLookup.lookup(networkAndChan.network, nick)
+					: Promise.resolve(null);
+
+			void lookup.then((user) => {
+				socket.emit("tracker:user", {target, nick, ...(user ?? {})});
+			});
+		});
+
 		socket.on("pin:change", (data) => {
 			if (
 				!_.isPlainObject(data) ||

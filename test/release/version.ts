@@ -182,4 +182,12 @@ describe("release notes", function () {
 		expect(body).to.include("## Features\n\n- Docker: PUID/PGID support");
 		expect(body).not.to.include("[!WARNING]");
 	});
+
+	it("reads the schema version that decides the storage warning", function () {
+		expect(
+			N.schemaVersion("export const currentSchemaVersion = 1794820000000; // note")
+		).to.equal("1794820000000");
+		expect(N.schemaVersion("const other = 1;")).to.equal(null);
+		expect(N.schemaVersion(undefined)).to.equal(null);
+	});
 });

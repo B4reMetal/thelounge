@@ -23,9 +23,15 @@ const GROUPS = [
 ];
 const OTHER = "Other changes";
 
-// Paths whose changes mean "back up before upgrading": the message database
-// can be migrated on first start and older versions may not read it back
-const STORAGE_PATHS = ["server/plugins/messageStorage"];
+// The message database is migrated on first start when its schema version
+// goes up, and older versions can't read it back: that's when to warn
+const SCHEMA_FILE = "server/plugins/messageStorage/sqlite.ts";
+
+// The `currentSchemaVersion` a copy of SCHEMA_FILE declares, or null
+export function schemaVersion(source) {
+	const m = /export const currentSchemaVersion\s*=\s*(\d+)/.exec(source || "");
+	return m ? m[1] : null;
+}
 
 // Turn one first-parent commit into {group, title, pr}, or null to skip it.
 // `pr` is set for pull requests merged from this repository's own branches:
@@ -150,13 +156,19 @@ export function readCommits(from, to) {
 		});
 }
 
-function storageChangedBetween(from, to) {
+function schemaAt(ref) {
 	try {
-		git("diff", "--quiet", from || SCHEME.firstReleaseBase, to, "--", ...STORAGE_PATHS);
-		return false;
+		return schemaVersion(git("show", `${ref}:${SCHEMA_FILE}`));
 	} catch {
-		return true;
+		return null;
 	}
+}
+
+function storageChangedBetween(from, to) {
+	const before = schemaAt(from || SCHEME.firstReleaseBase);
+	const after = schemaAt(to);
+	// Warn when unsure: a missing file or declaration counts as a change
+	return before === null || after === null || before !== after;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -168,6 +180,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 			.filter(Boolean)
 			.map((s) => [s.split(/\s+/)[0], s.split(/\s+/).slice(1).join(" ")])
 	);
+
 	if (a["refresh-of"]) {
 		process.stdout.write(
 			renderRefresh({

@@ -10413,7 +10413,7 @@ __metadata:
     ua-parser-js: "npm:2.0.10"
     undate: "npm:0.3.0"
     undici: "npm:7.30.2"
-    uuid: "npm:13.0.0"
+    uuid: "npm:14.0.3"
     vue: "npm:3.5.24"
     vue-eslint-parser: "npm:10.2.0"
     vue-loader: "npm:17.4.2"
@@ -10845,12 +10845,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"uuid@npm:13.0.0":
-  version: 13.0.0
-  resolution: "uuid@npm:13.0.0"
+"uuid@npm:14.0.3":
+  version: 14.0.3
+  resolution: "uuid@npm:14.0.3"
   bin:
     uuid: dist-node/bin/uuid
-  checksum: 10c0/950e4c18d57fef6c69675344f5700a08af21e26b9eff2bf2180427564297368c538ea11ac9fb2e6528b17fc3966a9fd2c5049361b0b63c7d654f3c550c9b3d67
+  checksum: 10c0/e56e610ae3bd1ca099244e01ee5eff502675ede4601d971b80fff993ad97236c80197340113f759e6ead501ee6a8d52648f6deef1332ce9f192c4720f4891f62
   languageName: node
   linkType: hard
 

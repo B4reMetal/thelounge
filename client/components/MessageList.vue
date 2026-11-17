@@ -24,10 +24,7 @@
 					:message="message as any"
 					:is-focused="isMessageFocused(message)"
 				/>
-				<div
-					v-if="shouldDisplayUnreadMarker(Number(message.id))"
-					class="unread-marker"
-				>
+				<div v-if="shouldDisplayUnreadMarker(Number(message.id))" class="unread-marker">
 					<span class="unread-marker-text" />
 				</div>
 
@@ -71,7 +68,7 @@ import {MessageType, SharedMsg} from "../../shared/types/msg";
 import eventbus from "../js/eventbus";
 import clipboard from "../js/clipboard";
 import socket from "../js/socket";
-import {leaveHistorySlice} from "../js/chan";
+import {cancelPendingJump, leaveHistorySlice, startPendingJump} from "../js/chan";
 import Message from "./Message.vue";
 import MessageCondensed from "./MessageCondensed.vue";
 import DateMarker from "./DateMarker.vue";
@@ -220,7 +217,10 @@ export default defineComponent({
 			}
 
 			// Use the window start index, clamped to valid range
-			const start = Math.max(0, Math.min(windowStartIndex.value, total - MAX_RENDERED_MESSAGES));
+			const start = Math.max(
+				0,
+				Math.min(windowStartIndex.value, total - MAX_RENDERED_MESSAGES)
+			);
 			return all.slice(start, start + MAX_RENDERED_MESSAGES);
 		});
 
@@ -232,8 +232,10 @@ export default defineComponent({
 		// Check if we're showing the latest messages
 		const isAtEnd = computed(() => {
 			const total = allCondensedMessages.value.length;
-			return total <= MAX_RENDERED_MESSAGES ||
-				windowStartIndex.value >= total - MAX_RENDERED_MESSAGES;
+			return (
+				total <= MAX_RENDERED_MESSAGES ||
+				windowStartIndex.value >= total - MAX_RENDERED_MESSAGES
+			);
 		});
 
 		// Should we show the "load more" button?
@@ -274,7 +276,8 @@ export default defineComponent({
 			}
 		};
 
-		const timeOf = (message: {time: Date | string | number}) => new Date(message.time).getTime();
+		const timeOf = (message: {time: Date | string | number}) =>
+			new Date(message.time).getTime();
 
 		// `last` is the oldest message the client holds in this channel,
 		// nothing to ask for the newest page
@@ -296,6 +299,7 @@ export default defineComponent({
 		// Jump to the absolute bottom (latest messages) and mark as at bottom
 		const jumpToBottom = async () => {
 			stopHolding?.();
+			cancelPendingJump(props.channel.id);
 			pendingJump = null;
 			jumping.value = false;
 			props.channel.scrolledToBottom = true;
@@ -499,6 +503,7 @@ export default defineComponent({
 		// it), and the jump is finished when that arrives.
 		const jumpTo = async (target: JumpTarget, mayFetch = true): Promise<boolean> => {
 			stopHolding?.();
+			cancelPendingJump(props.channel.id);
 			pendingJump = null;
 			jumping.value = true;
 			props.channel.scrolledToBottom = false;
@@ -508,7 +513,13 @@ export default defineComponent({
 			if (index === -1) {
 				if (mayFetch && target.time !== null && store.state.isConnected) {
 					pendingJump = target;
-					props.channel.historyLoading = true;
+					// Given up on timeout or disconnect
+					startPendingJump(props.channel, target.time, () => {
+						if (pendingJump === target) {
+							pendingJump = null;
+							jumping.value = false;
+						}
+					});
 					socket.emit("messages:around", {target: props.channel.id, time: target.time});
 				} else {
 					jumping.value = false;
@@ -776,8 +787,10 @@ export default defineComponent({
 		// Channel switch - scroll to bottom and reset window
 		watch(
 			() => props.channel.id,
-			async () => {
+			async (_id, oldId) => {
 				stopHolding?.();
+				// Its answer must not land in the channel that was left
+				cancelPendingJump(oldId);
 				pendingJump = null;
 				focusedKey.value = null;
 
@@ -905,6 +918,7 @@ export default defineComponent({
 
 		onBeforeUnmount(() => {
 			stopHolding?.();
+			cancelPendingJump(props.channel.id);
 			eventbus.off("resize", handleResize);
 			eventbus.off("messages:around", onMessagesAround);
 			chat.value?.removeEventListener("scroll", handleScroll);

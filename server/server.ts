@@ -556,6 +556,7 @@ function initializeClient(
 				"messages:around",
 				result || {
 					chan: data.target,
+					time: Number.isFinite(data.time) ? data.time : undefined,
 					messages: [],
 					hasMoreBefore: false,
 					hasMoreAfter: false,

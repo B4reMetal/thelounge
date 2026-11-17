@@ -1,5 +1,6 @@
 import {store} from "../store";
 import socket from "../socket";
+import {cancelAllPendingJumps} from "../chan";
 
 socket.on("disconnect", handleDisconnect);
 socket.on("connect_error", handleDisconnect);
@@ -29,6 +30,8 @@ function handleDisconnect(data) {
 	const message = String(data.message || data);
 
 	store.commit("isConnected", false);
+	// Their answers won't come
+	cancelAllPendingJumps();
 
 	if (!socket.io.reconnection()) {
 		store.commit(

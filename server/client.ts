@@ -815,7 +815,8 @@ class Client {
 				200
 			);
 
-			return {chan: target.chan.id, ...around};
+			// The time tells the client which jump this answers
+			return {chan: target.chan.id, time: data.time, ...around};
 		} catch (err) {
 			log.error("Failed to get messages around time:", String(err));
 			return null;

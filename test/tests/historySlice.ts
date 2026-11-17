@@ -1,7 +1,13 @@
 import {expect} from "chai";
+import sinon from "sinon";
 
 import {
+	cancelAllPendingJumps,
+	cancelPendingJump,
 	leaveHistorySlice,
+	pendingJumpTimeout,
+	startPendingJump,
+	takePendingJump,
 	liveMessageLimit,
 	prependMessages,
 	receiveLiveMessage,
@@ -333,5 +339,86 @@ describe("Trimming what the client holds in memory", function () {
 		channel.scrolledToBottom = true;
 		expect(liveMessageLimit(channel, true)).to.equal(1500);
 		expect(liveMessageLimit(channel, false)).to.equal(100);
+	});
+});
+
+describe("Pending jumps", function () {
+	// What the messages:around socket handler does with an answer
+	const answer = (channel: ClientChan, time: number, messages: SharedMsg[]) => {
+		if (takePendingJump(channel.id, time)) {
+			showMessagesAround(channel, {messages, hasMoreBefore: true, hasMoreAfter: true});
+		}
+	};
+
+	afterEach(function () {
+		cancelAllPendingJumps();
+	});
+
+	it("applies the answer to a jump that is still waiting", function () {
+		const channel = channelWith(range(900, 1000));
+
+		startPendingJump(channel, 200 * 1000);
+		expect(channel.historyLoading).to.equal(true);
+
+		answer(channel, 200 * 1000, range(100, 300));
+		expect(channel.historyLoading).to.equal(false);
+		expect(channel.historySlice).to.not.equal(undefined);
+		expect(ids(channel)).to.deep.equal(range(100, 300).map((m) => m.id));
+	});
+
+	it("ignores an answer that arrives after the user left the channel", function () {
+		const channel = channelWith(range(900, 1000));
+		const onCancel = sinon.spy();
+
+		startPendingJump(channel, 200 * 1000, onCancel);
+		cancelPendingJump(channel.id); // switched to another channel
+		expect(onCancel.calledOnce).to.equal(true);
+		expect(channel.historyLoading).to.equal(false);
+
+		// meanwhile live messages kept arriving
+		receiveLiveMessage(channel, msg(1001));
+		answer(channel, 200 * 1000, range(100, 300));
+
+		expect(channel.historySlice).to.equal(undefined);
+		expect(ids(channel)).to.deep.equal(range(900, 1001).map((m) => m.id));
+	});
+
+	it("ignores the answer to an earlier jump replaced by a newer one", function () {
+		const channel = channelWith(range(900, 1000));
+
+		startPendingJump(channel, 200 * 1000);
+		startPendingJump(channel, 500 * 1000);
+
+		answer(channel, 200 * 1000, range(100, 300));
+		expect(channel.historySlice).to.equal(undefined);
+		expect(channel.historyLoading).to.equal(true);
+
+		answer(channel, 500 * 1000, range(400, 600));
+		expect(ids(channel)).to.deep.equal(range(400, 600).map((m) => m.id));
+	});
+
+	it("gives up on timeout and on disconnect", function () {
+		const clock = sinon.useFakeTimers({toFake: ["setTimeout", "clearTimeout"]});
+
+		try {
+			const first = channelWith(range(900, 1000));
+			const second = {...channelWith(range(900, 1000)), id: 2} as ClientChan;
+			const onCancel = sinon.spy();
+
+			startPendingJump(first, 200 * 1000, onCancel);
+			clock.tick(pendingJumpTimeout);
+			expect(onCancel.calledOnce).to.equal(true);
+			expect(first.historyLoading).to.equal(false);
+			answer(first, 200 * 1000, range(100, 300));
+			expect(first.historySlice).to.equal(undefined);
+
+			startPendingJump(first, 200 * 1000);
+			startPendingJump(second, 200 * 1000);
+			cancelAllPendingJumps();
+			expect([first.historyLoading, second.historyLoading]).to.deep.equal([false, false]);
+			expect(takePendingJump(second.id, 200 * 1000)).to.equal(false);
+		} finally {
+			clock.restore();
+		}
 	});
 });

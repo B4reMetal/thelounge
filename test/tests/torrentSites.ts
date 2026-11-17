@@ -34,6 +34,13 @@ describe("Config.getTorrentSitesForHost", function () {
 				profileUrl: "profile/",
 			},
 			{
+				abbreviation: "NOL",
+				name: "No link",
+				host: "irc.nolink.example",
+				domain: "nolink.example",
+				profileLink: false,
+			},
+			{
 				disabled: true,
 				abbreviation: "OFF",
 				name: "Off",
@@ -77,6 +84,11 @@ describe("Config.getTorrentSitesForHost", function () {
 
 	it("skips disabled sites", function () {
 		expect(Config.getTorrentSitesForHost("irc.off.example")).to.equal(undefined);
+	});
+
+	it("keeps sites with profileLink: false, without a profile URL", function () {
+		const sites = Config.getTorrentSitesForHost("irc.nolink.example");
+		expect(sites?.map((s) => [s.abbreviation, s.profileUrl])).to.deep.equal([["NOL", null]]);
 	});
 
 	it("ships defaults that load and resolve", function () {

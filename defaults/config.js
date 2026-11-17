@@ -410,7 +410,14 @@ export default {
 	// - `channels` (optional): only offer the link in these channels. Use this
 	//   when several trackers share one IRC network. Omit to allow all channels.
 	// - `profileUrl` (optional): overrides `defaultTorrentSiteInfo.profileUrl`.
-	// - `disabled` (optional): set to `true` to skip the entry.
+	// - `profileLink` (optional): set to `false` when the tracker's profile URLs
+	//   aren't based on the nick. No "Tracker Profile" link is offered, but the
+	//   entry still scopes the shoutbox bridge matcher for that tracker.
+	// - `disabled` (optional): set to `true` to skip the entry entirely.
+	//
+	// Shoutbox bridge matchers (see `client/js/helpers/shoutbox-bridge/matchers.ts`)
+	// refer to entries here by `abbreviation`, and only rewrite bridged messages
+	// on the network (and in the channels) configured for that tracker.
 	//
 	// For example:
 	//
@@ -534,7 +541,7 @@ export default {
 			domain: "znth.cx",
 		},
 		{
-			disabled: true, // Profile URLs aren't based on the username
+			profileLink: false, // Profile URLs aren't based on the username
 			abbreviation: "ANT",
 			name: "Anthelion",
 			host: "irc.nebulance.io",
@@ -549,7 +556,7 @@ export default {
 			],
 		},
 		{
-			disabled: true, // Profile URLs aren't based on the username
+			profileLink: false, // Profile URLs aren't based on the username
 			abbreviation: "RED",
 			name: "Redacted",
 			host: "irc.scratch-network.net",
@@ -567,7 +574,7 @@ export default {
 			],
 		},
 		{
-			disabled: true, // Profile URLs aren't based on the username
+			profileLink: false, // Profile URLs aren't based on the username
 			abbreviation: "MAM",
 			name: "MyAnonamouse",
 			host: "irc.myanonamouse.net",

@@ -60,25 +60,51 @@ describe("shoutbox bridge parser", function () {
 
 	it("never rewrites private queries, scoped or not", function () {
 		const scoped = msg("dp", "[admin] hello");
-		const unscoped = msg("chatbot", "[admin] hello");
+		const unscoped = msg("willie", "\x0309[SB]\x03 admin: hello");
 
 		expect(parser(scoped, darkpeers, query("dp"))).to.equal(scoped);
-		expect(parser(unscoped, otherNetwork, query("chatbot"))).to.equal(unscoped);
+		expect(parser(unscoped, otherNetwork, query("willie"))).to.equal(unscoped);
 		expect(parser(scoped, darkpeers, undefined)).to.equal(scoped);
 	});
 
 	it("keeps unscoped matchers working in any channel", function () {
-		const result = parser(msg("chatbot", "[admin] hello"), otherNetwork, channel("#aither"));
+		const result = parser(
+			msg("willie", "\x0309[SB]\x03 admin: hello"),
+			otherNetwork,
+			channel("#beyondhd")
+		);
 
 		expect(result.from?.nick).to.equal("admin");
 	});
 
 	it("says which tracker a bridged user is from, when the matcher is scoped", function () {
 		const scoped = parser(msg("dp", "[admin] hello"), darkpeers, channel("#darkpeers"));
-		const unscoped = parser(msg("chatbot", "[admin] hello"), otherNetwork, channel("#aither"));
+		const unscoped = parser(
+			msg("willie", "\x0309[SB]\x03 admin: hello"),
+			otherNetwork,
+			channel("#beyondhd")
+		);
 
 		expect(scoped.from?.tracker).to.equal("DP");
 		expect(unscoped.from?.tracker).to.equal(undefined);
+	});
+
+	it("leaves disabled matchers out, on every network", function () {
+		for (const [nick, text] of [
+			["chatbot", "[admin] hello"],
+			["admin-web", "hello"],
+		]) {
+			const message = msg(nick, text);
+
+			expect(parser(message, otherNetwork, channel("#any"))).to.equal(message);
+			expect(parser(message, darkpeers, channel("#darkpeers"))).to.equal(message);
+		}
+
+		expect(matchers.filter((m) => m.disabled).map((m) => m.name)).to.deep.equal([
+			"Aither",
+			"DreadVault",
+			"HUNO (Web)",
+		]);
 	});
 
 	it("only references trackers that exist in the default config", async function () {

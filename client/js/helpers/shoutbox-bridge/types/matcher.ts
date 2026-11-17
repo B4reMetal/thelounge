@@ -13,6 +13,12 @@ interface BaseMatcher {
 	 * so set it as soon as the tracker's IRC host is known.
 	 */
 	tracker?: string;
+	/**
+	 * Turns the matcher off. For matchers that have no tracker to be limited
+	 * to and whose bot nick couldn't be confirmed: anyone using that nick, on
+	 * any network, would be shown as whoever they claim to be.
+	 */
+	disabled?: boolean;
 	transform: (message: SharedMsg) => MessageEdit | undefined;
 };
 

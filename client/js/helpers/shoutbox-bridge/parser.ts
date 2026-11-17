@@ -24,6 +24,7 @@ export function parser (
 	if (channel?.type !== ChanType.CHANNEL) return originalMessage;
 
 	const matcher = matchers.find(m => {
+		if (m.disabled) return false;
 		if (!inScope(m, network, channel)) return false;
 		if (m.type === "basic") return m.matches.includes(originalSender);
 		if (m.type === "advanced") return m.matches(originalSender);

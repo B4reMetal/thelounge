@@ -8,6 +8,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "Aither",
+		disabled: true, // no known IRC host to limit it to
 		description: "[nick] message",
 		matches: [ "chatbot" ],
 		regex: /^\[(?<nick>[^:\]]+)\] (?<content>.*)/,
@@ -71,6 +72,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "DreadVault",
+		disabled: true, // no known IRC host to limit it to
 		description: "<<nick>> <message>",
 		matches: ["dreadvaultbot"],
 		regex: /^<(?<nick>[^>]+?)> (?<content>.*)/,
@@ -102,6 +104,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "advanced",
 		name: "HUNO (Web)",
+		disabled: true, // no known IRC host to limit it to
 		description: "Nicks in the format '<nick>-web'",
 		matches (nick) {
 			return nick.endsWith("-web") || nick.endsWith("-web", nick.length - 2);

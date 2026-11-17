@@ -1,14 +1,21 @@
 import {expect} from "chai";
 
 import {parser} from "../../client/js/helpers/shoutbox-bridge/parser.js";
+import {ChanType} from "../../shared/types/chan.js";
 import type {SharedMsg} from "../../shared/types/msg";
 
-// "chatbot" is relayed with the "[nick] message" format
+// "chatbot" is Aither's bridge bot, relayed with the "[nick] message" format.
+// Its matcher only applies on Aither's network.
+const aither = {trackers: [{id: "ATH", name: "Aither"}]};
 const bridged = (nick: string) =>
-	parser({
-		from: {nick: "chatbot", mode: ""},
-		text: `[${nick}] hello`,
-	} as unknown as SharedMsg);
+	parser(
+		{
+			from: {nick: "chatbot", mode: ""},
+			text: `[${nick}] hello`,
+		} as unknown as SharedMsg,
+		aither,
+		{type: ChanType.CHANNEL, name: "#General"}
+	);
 
 describe("shoutbox bridge parser", function () {
 	it("keeps hyphens and the other IRC nick characters", function () {

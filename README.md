@@ -1,95 +1,80 @@
-<h1 align="center">
-	<img
-		width="300"
-		alt="The Lounge"
-		src="https://raw.githubusercontent.com/thelounge/thelounge/master/client/img/logo-vertical-transparent-bg.svg?sanitize=true">
-</h1>
+# The Lounge (fHori)
 
-<h3 align="center">
-	Modern web IRC client designed for self-hosting
-</h3>
+A fork of @tetrahydroc's [The Lounge](https://github.com/tetrahydroc/thelounge),
+the self-hosted web IRC client.
 
-<p align="center">
-	<strong>
-		<a href="https://thelounge.chat/">Website</a>
-		•
-		<a href="https://thelounge.chat/docs">Docs</a>
-		•
-		<a href="https://demo.thelounge.chat/">Demo</a>
-    •
-		<a href="https://github.com/thelounge/thelounge-docker">Docker</a>
-	</strong>
-</p>
-<p align="center">
-	<a href="https://demo.thelounge.chat/"><img
-		alt="#thelounge IRC channel on Libera.Chat"
-		src="https://img.shields.io/badge/Libera.Chat-%23thelounge-415364.svg?colorA=ff9e18"></a>
-	<a href="https://yarn.pm/thelounge"><img
-		alt="npm version"
-		src="https://img.shields.io/npm/v/thelounge.svg?colorA=333a41&maxAge=3600"></a>
-	<a href="https://github.com/thelounge/thelounge/actions"><img
-		alt="Build Status"
-		src="https://github.com/thelounge/thelounge/workflows/Build/badge.svg"></a>
-</p>
+## What's different
 
-<p align="center">
-	<img src="https://raw.githubusercontent.com/thelounge/thelounge.github.io/master/img/thelounge-screenshot.png" width="550">
-</p>
+- Fast search across your whole history, and jump straight to any result or mention
+- Long histories load quickly and scroll back without limit
+- Security fixes: uploads need a logged-in session, bad data from an IRC server
+  or a browser can't take the server down, and the Docker image runs as a normal
+  user
+- Shoutbox messages relayed by tracker bots show the real sender
+- Right-click a user to open their tracker profile
+- Netsplits and mass reconnects collapse into one line
+- Direct messages get their own section in the sidebar, with pinning
+- Uploads to Catbox, Zipline, rustypaste and others, or local with auto-delete
+- Reply to a message, `/rainbow`, `/cleartopic`
 
-## Overview
+## Docker
 
-- **Modern features brought to IRC.** Push notifications, link previews, new message markers, and more bring IRC to the 21st century.
-- **Always connected.** Remains connected to IRC servers while you are offline.
-- **Cross platform.** It doesn't matter what OS you use, it just works wherever Node.js runs.
-- **Responsive interface.** The client works smoothly on every desktop, smartphone and tablet.
-- **Synchronized experience.** Always resume where you left off no matter what device.
+```yaml
+services:
+  thelounge:
+    image: ghcr.io/fhori/thelounge:latest
+    environment:
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      - ./thelounge:/var/opt/thelounge
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
+```
 
-To learn more about configuration, usage and features of The Lounge, take a look at [the website](https://thelounge.chat).
+Add a user with `docker compose exec thelounge thelounge add <name>`.
 
-The Lounge is the official and community-managed fork of [Shout](https://github.com/erming/shout), by [Mattias Erming](https://github.com/erming).
+`latest` is the newest release. Pin a version like `2026.11.0` to upgrade on your
+own schedule, or use `edge` for the newest unreleased changes.
+More options in [docs/DOCKER.md](docs/DOCKER.md).
 
-## Installation and usage
+## Coming from another version
 
-The Lounge requires [Node.js](https://nodejs.org/) v24.11.1 or newer (Node.js v24 LTS or v25+ recommended).
-The [Yarn package manager](https://yarnpkg.com/) v4.11.0+ is also recommended.
-If you want to install with npm, `--unsafe-perm` is required for a correct install.
+Back up your data folder first. Your message history is upgraded on first start,
+and other versions of The Lounge can't read it afterwards. A command to convert it
+back is [proposed and implemented](https://github.com/fHori/thelounge/pull/11).
 
-### Running stable releases
+## From source
 
-Please refer to the [install and upgrade documentation on our website](https://thelounge.chat/docs/install-and-upgrade) for all available installation methods.
-
-### Running from source
-
-The following commands install and run the development version of The Lounge:
+Needs Node.js 22.
 
 ```sh
-git clone https://github.com/thelounge/thelounge.git
+git clone https://github.com/fHori/thelounge.git
 cd thelounge
+corepack enable
 yarn install
 NODE_ENV=production yarn build
 yarn start
 ```
 
-When installed like this, `thelounge` executable is not created. Use `node index <command>` to run commands.
+## Configuration
 
-⚠️ While it is the most recent codebase, this is not production-ready! Run at
-your own risk. It is also not recommended to run this as root.
+The [The Lounge docs](https://thelounge.chat/docs) apply. Options specific to this
+fork are explained in [`defaults/config.js`](defaults/config.js).
 
-## Development setup
+## Reporting issues
 
-Simply follow the instructions to run The Lounge from source above, on your own
-fork.
+Found a bug? [Open an issue](https://github.com/fHori/thelounge/issues).
+For security problems, please don't open a public issue; see
+[SECURITY.md](SECURITY.md).
 
-Before submitting any change, make sure to:
+## Development
 
-- Read the [Contributing instructions](https://github.com/thelounge/thelounge/blob/master/.github/CONTRIBUTING.md#contributing)
-- Run `yarn test` to execute linters and the test suite
-  - Run `yarn format:prettier` if linting fails
-- Run `yarn build:client` if you change or add anything in `client/js` or `client/components`
-  - The built files will be output to `public/` by webpack
-- Run `yarn build:server` if you change anything in `server/`
-  - The built files will be output to `dist/` by tsc
-- `yarn dev` can be used to start The Lounge with hot module reloading
+This project leverages AI-assisted development workflows. All architecture,
+logic, and code are planned, reviewed, and audited by human maintainers,
+backed by automated test suites.
 
-To ensure that you don't commit files that fail the linting, you can install a pre-commit git hook.
-Execute `yarn githooks-install` to do so.
+## License
+
+MIT

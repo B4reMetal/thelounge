@@ -1,16 +1,3 @@
-contact_links:
-  - name: Docker container issues
-    url: https://github.com/thelounge/thelounge-docker/issues
-    about: Report issues related to the Docker container here
-
-  - name: Debian package issues
-    url: https://github.com/thelounge/thelounge-deb/issues
-    about: Report issues related to the Debian package here
-
-  - name: Arch Linux package issues
-    url: https://github.com/thelounge/thelounge-archlinux/issues
-    about: Report issues related to the Arch Linux package here
-
-  - name: General support
-    url: https://demo.thelounge.chat/?join=%23thelounge
-    about: "Join #thelounge on Libera.Chat to ask a question before creating an issue"
+# The Docker, Debian and Arch Linux links of stock The Lounge were removed: they
+# are for the stock project's packages, not for this fork.
+contact_links: []

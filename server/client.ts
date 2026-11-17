@@ -11,6 +11,7 @@ import Msg from "./models/msg.js";
 import Config from "./config.js";
 import {condensedTypes} from "../shared/irc.js";
 import {migrateRenamedSettings} from "../shared/settings.js";
+import {messageKey} from "../shared/messageKey.js";
 import {MessageType} from "../shared/types/msg.js";
 import {SharedMention} from "../shared/types/mention.js";
 
@@ -601,7 +602,13 @@ class Client {
 		);
 	}
 
-	async more(data: {target: number; lastId: number; condensed: boolean; beforeTime?: number}) {
+	async more(data: {
+		target: number;
+		lastId: number;
+		lastTime?: number;
+		condensed: boolean;
+		beforeTime?: number;
+	}) {
 		const target = this.find(data.target);
 
 		if (!target) {
@@ -620,7 +627,15 @@ class Client {
 		if (data.lastId < 0) {
 			index = chan.messages.length;
 		} else {
-			index = chan.messages.findIndex((val) => val.id === data.lastId);
+			// Ids repeat across a channel's history, so the time the client
+			// sends along tells which message it means. Clients that don't
+			// send one are matched by id alone, as before.
+			index = chan.messages.findIndex(
+				(val) =>
+					val.id === data.lastId &&
+					(typeof data.lastTime !== "number" ||
+						new Date(val.time).getTime() === data.lastTime)
+			);
 		}
 
 		// If requested id is not found, an empty array will be sent
@@ -700,25 +715,42 @@ class Client {
 			return {messages: [], hasMore: older.length > 0};
 		}
 
-		// Rows sharing the anchor's millisecond come back too and are dropped
-		// below, so leave room for them
-		const limit = wanted + 50;
-		const rows = await provider.getMessagesBefore(
-			network.uuid,
-			chan.name,
-			anchor,
-			limit,
-			true
-		);
+		const known = new Set(chan.messages.map(messageKey));
+		const covered = this.massEventAggregator.coveredByMassEvent(chan);
+		const isFresh = (m: Msg) => !known.has(messageKey(m)) && !covered(m);
 
-		const known = new Set(chan.messages.map((m) => m.id));
-		const fresh = rows.filter((m) => !known.has(m.id));
+		// Rows sharing the anchor's millisecond: the client may hold only
+		// some of them, and drops the ones it has by id and time. They are
+		// read apart from the page itself, as they don't move paging on.
+		const atAnchor = (
+			await provider.getMessagesBefore(network.uuid, chan.name, anchor, 500, true)
+		).filter((m) => new Date(m.time).getTime() === anchor && isFresh(m));
+
+		// The page: up to `wanted` rows strictly older than the anchor. A read
+		// with nothing in it to send (rows of a mass event that is shown as
+		// its summary) is stepped over, so paging doesn't end there.
+		let before = anchor;
+		let older: Msg[] = [];
+		let full = false;
+
+		for (let reads = 0; reads < 20; reads++) {
+			const rows = await provider.getMessagesBefore(network.uuid, chan.name, before, wanted);
+
+			full = rows.length >= wanted;
+			older = rows.filter(isFresh);
+
+			if (older.length > 0 || !full) {
+				break;
+			}
+
+			before = new Date(rows[0].time).getTime();
+		}
 
 		return {
-			messages: fresh,
-			// A full read means storage has more. Requiring something new
-			// keeps a client from asking for the same page forever.
-			hasMore: rows.length >= limit && fresh.length > 0,
+			messages: older.concat(atAnchor),
+			// A full read means storage may have more. Requiring something
+			// older keeps a client from asking for the same page forever.
+			hasMore: full && older.length > 0,
 		};
 	}
 
@@ -919,6 +951,7 @@ class Client {
 	part(network: Network, chan: Chan) {
 		network.channels = _.without(network.channels, chan);
 		this.mentions = this.mentions.filter((msg) => !(msg.chanId === chan.id));
+		this.massEventAggregator.cleanup(chan.id);
 		chan.destroy();
 		this.save();
 		this.emit("part", {
@@ -948,7 +981,7 @@ class Client {
 
 		this.networks.forEach((network) => {
 			network.quit();
-			network.destroy();
+			network.destroy(this);
 		});
 
 		for (const messageStorage of this.messageStorage) {

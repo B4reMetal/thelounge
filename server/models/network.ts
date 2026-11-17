@@ -516,8 +516,11 @@ class Network {
 		client.save();
 	}
 
-	destroy() {
-		this.channels.forEach((channel) => channel.destroy());
+	destroy(client: Client) {
+		this.channels.forEach((channel) => {
+			client.massEventAggregator.cleanup(channel.id);
+			channel.destroy();
+		});
 	}
 
 	setNick(this: Network, nick: string) {

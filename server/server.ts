@@ -528,6 +528,11 @@ function initializeClient(
 				return;
 			}
 
+			// Pins lastId to one message, as ids can repeat across restarts
+			if (data.lastTime !== undefined && !Number.isFinite(data.lastTime)) {
+				delete data.lastTime;
+			}
+
 			// Only used as a time anchor for stored history
 			if (data.beforeTime !== undefined && !Number.isFinite(data.beforeTime)) {
 				delete data.beforeTime;

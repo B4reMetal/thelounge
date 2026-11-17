@@ -11,6 +11,7 @@ import Prefix from "./prefix.js";
 import {MessageType, SharedMsg} from "../../shared/types/msg.js";
 import {ChanType, SpecialChanType, ChanState, UserGroup} from "../../shared/types/chan.js";
 import {SharedNetworkChan} from "../../shared/types/network.js";
+import {messageKey} from "../../shared/messageKey.js";
 
 export type ChanConfig = {
 	name: string;
@@ -246,7 +247,14 @@ class Chan {
 
 	writeUserLog(client: Client, msg: Msg) {
 		this.messages.push(msg);
+		this.storeMessage(client, msg);
+	}
 
+	/**
+	 * Writes a message to message storage only, without adding it to the
+	 * in-memory history.
+	 */
+	storeMessage(client: Client, msg: Msg) {
 		// Are there any logs enabled
 		if (client.messageStorage.length === 0) {
 			return;
@@ -338,8 +346,10 @@ class Chan {
 
 				// Messages that arrived since startup are already in memory
 				// and, being logged, are part of what was just read back.
-				const inMemory = new Set(this.messages.map((m) => m.id));
-				const messages = stored.filter((m) => !inMemory.has(m.id));
+				const inMemory = new Set(this.messages.map(messageKey));
+				// So are the messages a mass event summary in memory stands for
+				const covered = client.massEventAggregator.coveredByMassEvent(this);
+				const messages = stored.filter((m) => !inMemory.has(messageKey(m)) && !covered(m));
 
 				Helper.unshiftMany(this.messages, messages);
 

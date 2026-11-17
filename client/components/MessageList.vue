@@ -276,13 +276,16 @@ export default defineComponent({
 
 		const timeOf = (message: {time: Date | string | number}) => new Date(message.time).getTime();
 
-		const requestHistory = (lastId: number) => {
+		// `last` is the oldest message the client holds in this channel,
+		// nothing to ask for the newest page
+		const requestHistory = (last?: {id: number; time: Date | string | number}) => {
 			const oldest = props.channel.messages[0];
 
 			props.channel.historyLoading = true;
 			socket.emit("more", {
 				target: props.channel.id,
-				lastId,
+				lastId: last ? last.id : -1,
+				lastTime: last ? timeOf(last) : undefined,
 				condensed: store.state.settings.statusMessages !== "shown",
 				// Lets the server keep paging from storage once this
 				// message is no longer in its memory
@@ -303,7 +306,7 @@ export default defineComponent({
 				// itself once they arrive.
 				leaveHistorySlice(props.channel);
 				windowStartIndex.value = 0;
-				requestHistory(-1);
+				requestHistory();
 				return;
 			}
 
@@ -606,16 +609,7 @@ export default defineComponent({
 		const onShowMoreClick = () => {
 			if (!store.state.isConnected) return;
 
-			let lastMessage = -1;
-
-			for (const message of props.channel.messages) {
-				if (!message.showInActive) {
-					lastMessage = message.id;
-					break;
-				}
-			}
-
-			requestHistory(lastMessage);
+			requestHistory(props.channel.messages.find((message) => !message.showInActive));
 		};
 
 		// Extend a slice of old history towards the present

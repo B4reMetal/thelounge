@@ -45,6 +45,7 @@ Vivamus bibendum vulputate tincidunt. Sed vitae ligula felis.`;
 	});
 
 	afterEach(function (done) {
+		Config.values.bind = undefined;
 		this.connection.close(done);
 	});
 
@@ -83,6 +84,34 @@ Vivamus bibendum vulputate tincidunt. Sed vitae ligula felis.`;
 			expect(message.previews).to.deep.equal([data.preview]);
 			done();
 		});
+	});
+
+	it("should make the request from the configured bind address", function (done) {
+		// Every 127.0.0.0/8 address is local on Linux, other platforms only have 127.0.0.1
+		if (process.platform !== "linux") {
+			return this.skip();
+		}
+
+		const url = this._makeUrl("bound");
+		const message = this.irc.createMessage({
+			text: url,
+		});
+		let remoteAddress: string | undefined;
+
+		app.get("/bound", function (req, res) {
+			remoteAddress = req.socket.remoteAddress;
+			res.send("<title>bound</title>");
+		});
+
+		Config.values.bind = "127.0.0.2";
+
+		this.irc.once("msg:preview", function (data) {
+			expect(data.preview.head).to.equal("bound");
+			expect(remoteAddress).to.equal("127.0.0.2");
+			done();
+		});
+
+		link(this.irc, this.network.channels[0], message, message.text);
 	});
 
 	it("should be able to display body for text/plain", function (done) {

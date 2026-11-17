@@ -13,6 +13,15 @@ program
 	.option("--dev", "Development mode with hot module reloading")
 	.on("--help", Utils.extraHelp)
 	.action(async function (options) {
+		// One failed promise somewhere must not end the server for every
+		// user, which is what Node does with it by default
+		process.on("unhandledRejection", (reason) => {
+			log.error(
+				"Unhandled promise rejection:",
+				reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)
+			);
+		});
+
 		initalizeConfig();
 		const serverModule = await import("../server.js");
 

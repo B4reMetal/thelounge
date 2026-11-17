@@ -6,7 +6,9 @@ import Client from "../../server/client.js";
 import Msg from "../../server/models/msg.js";
 import Network from "../../server/models/network.js";
 import Config from "../../server/config.js";
-import MassEventAggregator from "../../server/plugins/massEventAggregator.js";
+import MassEventAggregator, {
+	maxCapturedPerSummary,
+} from "../../server/plugins/massEventAggregator.js";
 import {ChanType} from "../../shared/types/chan.js";
 import {MessageType} from "../../shared/types/msg.js";
 
@@ -86,11 +88,12 @@ describe("Mass event aggregation", function () {
 			}
 		};
 
-		const join = (nick: string) => {
+		// `time` stands in for a server-time tag
+		const join = (nick: string, time?: Date) => {
 			clock.tick(100);
 			const msg = new Msg({
 				type: MessageType.JOIN,
-				time: new Date(),
+				time: time || new Date(),
 				from: {nick} as Msg["from"],
 			});
 			receive(msg);
@@ -117,7 +120,7 @@ describe("Mass event aggregation", function () {
 	it("does not count messages already delivered before activation in the summary", function () {
 		const {chan, join, sentMessages, raw} = setup();
 
-		["a", "b", "c", "d", "e"].forEach(join);
+		["a", "b", "c", "d", "e"].forEach((nick) => join(nick));
 
 		// a and b went out before the threshold was reached; c, d and e are captured
 		expect(sentMessages().map((m) => m.type)).to.deep.equal([
@@ -144,7 +147,7 @@ describe("Mass event aggregation", function () {
 	it("writes captured messages to storage, but not the summary", function () {
 		const {chan, join, stored, client} = setup();
 
-		const msgs = ["a", "b", "c", "d", "e"].map(join);
+		const msgs = ["a", "b", "c", "d", "e"].map((nick) => join(nick));
 		clock.tick(5000);
 
 		// every individual message is stored, with its own id
@@ -168,7 +171,7 @@ describe("Mass event aggregation", function () {
 		const older = new Msg({type: MessageType.MESSAGE, time: new Date(5000), text: "older"});
 		older.id = 1000;
 
-		["a", "b", "c", "d", "e"].forEach(join);
+		["a", "b", "c", "d", "e"].forEach((nick) => join(nick));
 		clock.tick(5000);
 
 		const provider = {
@@ -195,19 +198,75 @@ describe("Mass event aggregation", function () {
 	it("covers stored rows of the mass event that is still in progress", function () {
 		const {chan, join, client} = setup();
 
-		const msgs = ["a", "b", "c", "d"].map(join);
+		const msgs = ["a", "b", "c", "d"].map((nick) => join(nick));
 		const covered = client.massEventAggregator.coveredByMassEvent(chan);
 
 		expect(msgs.map(covered)).to.deep.equal([false, false, true, true]);
 
 		const text = new Msg({type: MessageType.MESSAGE, time: msgs[3].time, text: "hi"});
 		expect(covered(text)).to.equal(false);
+
+		// stored later, after the summary was taken: newer than anything captured
+		const later = new Msg({type: MessageType.JOIN, time: new Date(Date.now() + 1000)});
+		later.id = 9999;
+		expect(covered(later)).to.equal(false);
+	});
+
+	it("covers only the captured messages, whatever their timestamps say", function () {
+		const {chan, join, client} = setup();
+
+		// a replayed join (bouncer playback) with an old timestamp is captured
+		["a", "b"].forEach((nick) => join(nick));
+		const replayed = join("c", new Date(10_000));
+		const captured = ["d", "e"].map((nick) => join(nick));
+		clock.tick(5000);
+
+		const summary = chan.messages[chan.messages.length - 1];
+		expect(summary.type).to.equal(MessageType.MASS_EVENT);
+
+		// a join that was delivered normally, from within the time range the
+		// summary's messages span
+		const delivered = new Msg({type: MessageType.JOIN, time: new Date(500_000)});
+		delivered.id = 1234;
+
+		const covered = client.massEventAggregator.coveredByMassEvent(chan);
+		expect([replayed, ...captured].map(covered)).to.deep.equal([true, true, true]);
+		expect(covered(delivered)).to.equal(false);
+
+		// the same id from a different time is a different message
+		expect(covered({...replayed, time: new Date(10_001)} as Msg)).to.equal(false);
+
+		// once the summary leaves memory, its messages are no longer covered
+		chan.messages = chan.messages.filter((m) => m !== summary);
+		expect(client.massEventAggregator.coveredByMassEvent(chan)(replayed)).to.equal(false);
+	});
+
+	it("splits a flood into summaries of a bounded size", function () {
+		const {chan, join, client} = setup();
+		Config.values.massEventDetection.maxDurationMs = 24 * 3600 * 1000;
+
+		const total = maxCapturedPerSummary + 10;
+
+		for (let i = 0; i < total + 2; i++) {
+			join(`n${i}`);
+		}
+
+		// the first summary is out, the rest is still being captured
+		const summaries = chan.messages.filter((m) => m.type === MessageType.MASS_EVENT);
+		expect(summaries).to.have.lengthOf(1);
+		expect(summaries[0].massEventSummary?.joins).to.equal(maxCapturedPerSummary);
+		expect(client.massEventAggregator.isActive(chan.id)).to.equal(true);
+
+		clock.tick(5000);
+		const done = chan.messages.filter((m) => m.type === MessageType.MASS_EVENT);
+		expect(done).to.have.lengthOf(2);
+		expect(done[1].massEventSummary?.joins).to.equal(10);
 	});
 
 	it("stops the timers when the channel is parted", function () {
 		const {chan, network, client, join, sentMessages} = setup();
 
-		["a", "b", "c", "d"].forEach(join);
+		["a", "b", "c", "d"].forEach((nick) => join(nick));
 		expect(client.massEventAggregator.isActive(chan.id)).to.equal(true);
 		expect(clock.countTimers()).to.equal(2);
 
@@ -223,7 +282,7 @@ describe("Mass event aggregation", function () {
 	it("stops the timers when the network is removed", function () {
 		const {chan, network, client, join} = setup();
 
-		["a", "b", "c", "d"].forEach(join);
+		["a", "b", "c", "d"].forEach((nick) => join(nick));
 		expect(clock.countTimers()).to.equal(2);
 
 		network.destroy(client);

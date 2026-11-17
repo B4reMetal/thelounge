@@ -6,6 +6,8 @@ import Msg from "../../server/models/msg.js";
 import Config from "../../server/config.js";
 import MassEventAggregator from "../../server/plugins/massEventAggregator.js";
 import {ChanType} from "../../shared/types/chan.js";
+import {MessageType} from "../../shared/types/msg.js";
+import {messageKey} from "../../shared/messageKey.js";
 
 // In-memory stand-in for SqliteMessageStorage, holding rows oldest first
 function fakeProvider(stored: Msg[]) {
@@ -252,9 +254,15 @@ describe("History paging", function () {
 		chan.loadMessages(client, network as any, true);
 		await settle();
 
-		// everything between 101 and 300 is hidden behind a summary
-		client.massEventAggregator.coveredByMassEvent = () => (m: Msg) => m.id > 100 && m.id <= 300;
-		chan.messages = chan.messages.filter((m) => m.id > 300);
+		// the joins between 101 and 300 are shown as a summary held in memory,
+		// pushed once the flood had ended
+		const joins = stored.filter((m) => m.id > 100 && m.id <= 300);
+		joins.forEach((m) => (m.type = MessageType.JOIN));
+		const summary = new Msg({type: MessageType.MASS_EVENT, time: new Date(400500)});
+		(
+			client.massEventAggregator as unknown as {summaryKeys: WeakMap<Msg, Set<string>>}
+		).summaryKeys.set(summary, new Set(joins.map(messageKey)));
+		chan.messages = [...chan.messages.filter((m) => m.id > 300), summary];
 
 		const page = await client.more({
 			target: chan.id,

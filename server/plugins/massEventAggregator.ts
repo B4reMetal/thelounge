@@ -6,6 +6,12 @@ import Config from "../config.js";
 import log from "../log.js";
 import {MessageType, MassEventSummary} from "../../shared/types/msg.js";
 import {condensedTypes} from "../../shared/irc.js";
+import {messageKey} from "../../shared/messageKey.js";
+
+// The most messages one summary stands for. Their keys are held in memory
+// for as long as the summary is, so a longer flood is split into several
+// summaries instead.
+export const maxCapturedPerSummary = 5000;
 
 type SummaryCounts = Omit<MassEventSummary, "duration" | "startTime" | "endTime">;
 
@@ -13,6 +19,8 @@ interface ChannelMassEventState {
 	isActive: boolean;
 	// Counts of the messages captured since activation
 	counts: SummaryCounts;
+	// Keys (see messageKey) of the messages captured since activation
+	captured: Set<string>;
 	// Earliest and latest `time` of the captured messages
 	firstTime: number | null;
 	lastTime: number | null;
@@ -50,6 +58,9 @@ function emptyCounts(): SummaryCounts {
  */
 class MassEventAggregator {
 	private channelStates: Map<number, ChannelMassEventState> = new Map();
+	// The keys of the messages each summary stands for. Held only as long
+	// as the summary itself is (in a channel's in-memory history).
+	private summaryKeys = new WeakMap<Msg, ReadonlySet<string>>();
 	private client: Client;
 
 	constructor(client: Client) {
@@ -63,6 +74,7 @@ class MassEventAggregator {
 			state = {
 				isActive: false,
 				counts: emptyCounts(),
+				captured: new Set(),
 				firstTime: null,
 				lastTime: null,
 				cooldownTimer: null,
@@ -125,6 +137,10 @@ class MassEventAggregator {
 
 			state.recentTimestamps = [];
 			this.activateMassEvent(state, chan, network);
+		} else if (state.captured.size >= maxCapturedPerSummary) {
+			// Bounds the keys a summary holds on to: carry on with a new one
+			this.endMassEvent(state, chan, network);
+			this.activateMassEvent(state, chan, network);
 		}
 
 		this.capture(state, chan, msg);
@@ -144,39 +160,35 @@ class MassEventAggregator {
 	 * Returns a check for whether a stored message is already represented by a
 	 * mass event summary held in the channel's memory (or by the mass event in
 	 * progress), so it must not be added to the in-memory history next to it.
+	 *
+	 * Only the messages that were actually captured match, by id and time:
+	 * message times come from the IRC server and say nothing about which
+	 * messages a summary stands for.
 	 */
 	coveredByMassEvent(chan: Chan): (msg: Msg) => boolean {
-		const ranges: [number, number][] = [];
+		const sets: ReadonlySet<string>[] = [];
 
 		for (const held of chan.messages) {
-			const summary = held.type === MessageType.MASS_EVENT && held.massEventSummary;
+			const keys = held.type === MessageType.MASS_EVENT && this.summaryKeys.get(held);
 
-			if (summary) {
-				ranges.push([
-					new Date(summary.startTime).getTime(),
-					new Date(summary.endTime).getTime(),
-				]);
+			if (keys) {
+				sets.push(keys);
 			}
 		}
 
 		const state = this.channelStates.get(chan.id);
 
-		if (state?.isActive && state.firstTime !== null) {
-			ranges.push([state.firstTime, Infinity]);
+		if (state?.isActive && state.captured.size > 0) {
+			sets.push(state.captured);
 		}
 
 		return (msg) => {
-			if (ranges.length === 0 || msg.type === MessageType.MASS_EVENT) {
+			if (sets.length === 0 || !condensedTypes.has(msg.type)) {
 				return false;
 			}
 
-			if (!condensedTypes.has(msg.type)) {
-				return false;
-			}
-
-			const time = new Date(msg.time).getTime();
-
-			return ranges.some(([start, end]) => time >= start && time <= end);
+			const key = messageKey(msg);
+			return sets.some((keys) => keys.has(key));
 		};
 	}
 
@@ -190,6 +202,7 @@ class MassEventAggregator {
 		// Keep the individual message in stored history. It gets an id like
 		// every other message so it can be told apart from them.
 		msg.id = this.client.idMsg++;
+		state.captured.add(messageKey(msg));
 
 		if (!Config.values.public) {
 			chan.storeMessage(this.client, msg);
@@ -239,11 +252,11 @@ class MassEventAggregator {
 		this.clearTimers(state);
 
 		const now = Date.now();
+		const captured = state.captured;
 		const startTime = state.firstTime ?? now;
 		const endTime = state.lastTime ?? now;
 
-		// The time range is the one of the captured messages, it is what
-		// coveredByMassEvent() matches stored rows against
+		// The time range is the one of the captured messages
 		const summary: MassEventSummary = {
 			...state.counts,
 			duration: endTime - startTime,
@@ -258,19 +271,20 @@ class MassEventAggregator {
 		// Reset state
 		state.isActive = false;
 		state.counts = emptyCounts();
+		state.captured = new Set();
 		state.firstTime = null;
 		state.lastTime = null;
 		state.recentTimestamps = [];
 
+		const summaryMsg = new Msg({
+			type: MessageType.MASS_EVENT,
+			time: new Date(now),
+			massEventSummary: summary,
+		});
+		this.summaryKeys.set(summaryMsg, captured);
+
 		// Push summary message through normal channel
-		chan.pushMessage(
-			this.client,
-			new Msg({
-				type: MessageType.MASS_EVENT,
-				time: new Date(now),
-				massEventSummary: summary,
-			})
-		);
+		chan.pushMessage(this.client, summaryMsg);
 
 		// Refresh user list if configured
 		if (Config.values.massEventDetection.refreshNamesAfter && network.irc) {

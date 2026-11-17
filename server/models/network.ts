@@ -13,6 +13,7 @@ import Client from "../client.js";
 import {MessageType} from "../../shared/types/msg.js";
 import {ChanType} from "../../shared/types/chan.js";
 import {SharedNetwork} from "../../shared/types/network.js";
+import {trackerNetworkKey} from "../plugins/trackerNetworks.js";
 
 type NetworkIrcOptions = {
 	host: string;
@@ -546,8 +547,9 @@ class Network {
 		return {
 			uuid: this.uuid,
 			name: this.name,
-			// Where trackers the user adds in their settings say they belong
-			host: this.host,
+			// Stands for the host in trackers the user adds in their settings;
+			// the host itself isn't sent
+			trackerKey: trackerNetworkKey(this.host),
 			nick: this.nick,
 			serverOptions: this.serverOptions,
 			status: this.getNetworkStatus(),

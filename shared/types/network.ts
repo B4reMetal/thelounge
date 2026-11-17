@@ -32,8 +32,10 @@ export type SharedNetworkStatus = {
 export type SharedNetwork = {
 	uuid: string;
 	name: string;
-	// IRC server hostname
-	host: string;
+	// Key for the IRC server host, which trackers in the user's settings
+	// are tied to. Derived from the host with a server secret, the host
+	// itself isn't sent.
+	trackerKey: string;
 	nick: string;
 	serverOptions: SharedServerOptions;
 	status: SharedNetworkStatus;

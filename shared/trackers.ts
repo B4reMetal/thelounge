@@ -36,7 +36,9 @@ export function isUsableProfileUrl(url: unknown): url is string {
  */
 export type UserTracker = {
 	id: string;
-	// IRC server hostname, compared case-insensitively against the network host
+	// The network's `trackerKey`: stands for its IRC server host, which the
+	// client isn't told. An entry whose key matches none of the user's
+	// networks does nothing.
 	network: string;
 	name?: string;
 	channels?: string[];

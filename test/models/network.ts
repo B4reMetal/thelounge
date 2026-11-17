@@ -432,7 +432,7 @@ describe("Network", function () {
 				.to.be.an("object")
 				.that.has.all.keys(
 					"channels",
-					"host",
+					"trackerKey",
 					"status",
 					"nick",
 					"name",

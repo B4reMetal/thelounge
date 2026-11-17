@@ -40,6 +40,7 @@ import {
 	LockedConfigNetDefaults,
 } from "../shared/types/config.js";
 import {userTrackerLimits, userTrackersSetting} from "../shared/trackers.js";
+import {trackerUserLookup} from "./plugins/trackerNetworks.js";
 
 type ServerOptions = {
 	dev: boolean;
@@ -774,11 +775,15 @@ function initializeClient(
 
 		const {target, nick} = data;
 		const networkAndChan = client.find(target);
-		// Only trackers have a use for this, don't hand it out elsewhere
-		const lookup =
-			networkAndChan && Config.getTrackersForHost(networkAndChan.network.host)
-				? client.userIdentLookup.lookup(networkAndChan.network, nick)
-				: Promise.resolve(null);
+		// Only trackers whose profile address takes the ident have a use for
+		// this (from config.js or the user's synced settings), don't hand it
+		// out elsewhere
+		const lookup = trackerUserLookup(
+			client.userIdentLookup,
+			networkAndChan ? networkAndChan.network : undefined,
+			nick,
+			client.config.clientSettings
+		);
 
 		void lookup.then((user) => {
 			socket.emit("tracker:user", {target, nick, ...(user ?? {})});

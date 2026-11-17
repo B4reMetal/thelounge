@@ -98,7 +98,7 @@ context menu. Changes here only apply to you.'
 				<label for="tracker-network" class="opt">Network</label>
 				<select id="tracker-network" v-model="form.network" class="input">
 					<option v-if="!hostIsListed(form.network)" :value="form.network">
-						{{ form.network || "Choose a network" }}
+						{{ form.network ? "A network you are not on" : "Choose a network" }}
 					</option>
 					<option v-for="host in networkHosts" :key="host.host" :value="host.host">
 						{{ host.label }}
@@ -287,15 +287,17 @@ export default defineComponent({
 
 		const entries = computed(() => parseUserTrackers(store.state.settings.userTrackers));
 
-		// The user's networks by host; several networks can share one
+		// The user's networks by tracker key (which stands for the IRC server
+		// host, see trackerKey); several networks can share one. `host` below
+		// is always such a key, never a hostname.
 		const networkHosts = computed(() => {
 			const hosts = new Map<string, {host: string; label: string}>();
 
 			for (const network of store.state.networks) {
-				const host = network.host?.toLowerCase();
+				const host = network.trackerKey;
 
 				if (host && !hosts.has(host)) {
-					hosts.set(host, {host, label: `${network.name} (${host})`});
+					hosts.set(host, {host, label: network.name});
 				}
 			}
 
@@ -307,7 +309,7 @@ export default defineComponent({
 			const seen = new Set<string>();
 
 			for (const network of store.state.networks) {
-				const host = network.host?.toLowerCase();
+				const host = network.trackerKey;
 
 				if (!host) {
 					continue;
@@ -342,7 +344,7 @@ export default defineComponent({
 		const hostIsListed = (host: string) => networkHosts.value.some((h) => h.host === host);
 
 		const networkLabel = (host: string) =>
-			networkHosts.value.find((h) => h.host === host)?.label ?? host;
+			networkHosts.value.find((h) => h.host === host)?.label ?? "A network you are not on";
 
 		const saveEntries = (list: UserTracker[]) => {
 			const value = serializeUserTrackers(list);

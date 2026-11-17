@@ -19,8 +19,9 @@ const seedpool: TrackerInfo = {
 	profileUrl: "https://seedpool.org/users/{nick}",
 };
 
-const host = "irc.example.net";
-const network = (trackers?: TrackerInfo[]) => ({host, trackers});
+// A network's trackerKey, as the server sends it
+const host = "5f2b0c8e6a1d4f3b9c7e2a1d0b9c8e7f";
+const network = (trackers?: TrackerInfo[]) => ({trackerKey: host, trackers});
 
 const mine = (entry: Partial<UserTracker>): UserTracker => ({
 	id: "user-1",
@@ -37,15 +38,23 @@ describe("withUserTrackers", function () {
 		expect(withUserTrackers(net, []).trackers).to.equal(net.trackers);
 	});
 
-	it("ignores entries for another host", function () {
+	it("ignores entries for another network, or a key of none", function () {
 		const net = network([seedpool]);
-		const merged = withUserTrackers(net, [mine({network: "irc.other.net"})]);
+		const merged = withUserTrackers(net, [
+			mine({network: "0000000000000000000000000000000"}),
+			// Stored by an earlier version, with a hostname
+			mine({network: "irc.example.net"}),
+		]);
 
 		expect(merged.trackers).to.deep.equal([seedpool]);
 	});
 
-	it("matches the host case-insensitively", function () {
-		const merged = withUserTrackers({host: "IRC.Example.NET"}, [mine({})]);
+	it("ignores everything for a network without a key", function () {
+		expect(withUserTrackers({trackers: undefined}, [mine({})]).trackers).to.equal(undefined);
+	});
+
+	it("matches the key case-insensitively", function () {
+		const merged = withUserTrackers({trackerKey: host.toUpperCase()}, [mine({})]);
 
 		expect(merged.trackers?.map((t) => t.id)).to.deep.equal(["user-1"]);
 	});

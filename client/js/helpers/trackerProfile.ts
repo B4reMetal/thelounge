@@ -47,7 +47,8 @@ export function findTracker(network: Network, channel: Channel, id: string) {
  *
  * A user entry with the id of one of the server's trackers replaces its
  * profile address and users' hostname, or hides its link; any other entry for
- * this network's host is added, ahead of the server's. Name and channels of
+ * this network's key (`trackerKey`, which stands for its IRC server host) is
+ * added, ahead of the server's. Entries with a key of no network are ignored. Name and channels of
  * the server's trackers stay as they are.
  *
  * This is for profile links only. Shoutbox bridge matchers must keep looking
@@ -55,11 +56,11 @@ export function findTracker(network: Network, channel: Channel, id: string) {
  * user writes in their settings must not decide whose messages get rewritten.
  */
 export function withUserTrackers(
-	network: Pick<ClientNetwork, "trackers"> & {host?: string},
+	network: Pick<ClientNetwork, "trackers"> & {trackerKey?: string},
 	userTrackers: UserTracker[]
 ): Network {
-	const host = network.host?.toLowerCase();
-	const own = host ? userTrackers.filter((t) => t.network.toLowerCase() === host) : [];
+	const key = network.trackerKey?.toLowerCase();
+	const own = key ? userTrackers.filter((t) => t.network.toLowerCase() === key) : [];
 
 	if (own.length === 0) {
 		return {trackers: network.trackers};

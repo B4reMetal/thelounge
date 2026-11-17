@@ -34,7 +34,7 @@ on:
         type: boolean
         default: false
       line_latest:
-        description: Move the YYYY.M tag
+        description: Move the YEAR.FEATURE tag
         type: boolean
         default: false
       edge:

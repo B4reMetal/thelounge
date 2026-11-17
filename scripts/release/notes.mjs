@@ -164,6 +164,14 @@ function schemaAt(ref) {
 	}
 }
 
+// What a release from..to contains, for the version bump: a feature release
+// when a merged branch is a feature or the storage schema changed
+export function releaseChanges(from, to) {
+	const storageChanged = storageChangedBetween(from, to);
+	const features = readCommits(from, to).some((c) => classify(c)?.group === "Features");
+	return {features: features || storageChanged, storageChanged};
+}
+
 function storageChangedBetween(from, to) {
 	const before = schemaAt(from || SCHEME.firstReleaseBase);
 	const after = schemaAt(to);

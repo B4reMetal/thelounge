@@ -52,7 +52,7 @@
 					<div
 						class="content"
 						dir="auto"
-						:data-jump-to="(store.state.settings.searchEnabled && store.state.settings.enableEnhancedSearch) || undefined"
+						:data-jump-to="store.state.settings.searchEnabled || undefined"
 						@click="jumpToMention(message)"
 					>
 						<ParsedMessage :message="(message as any)" />
@@ -217,12 +217,17 @@ export default defineComponent({
 		};
 
 		const jumpToMention = (message: ClientMention) => {
-			if (!store.state.settings.enableEnhancedSearch || !message.channel) {
+			if (!store.state.settings.searchEnabled || !message.channel) {
 				return;
 			}
 
-			// Navigate to the channel with the focused message
-			switchToChannel(message.channel.channel, message.msgId);
+			// Navigate to the channel with the focused message. With its time
+			// the message list can fetch it from storage when it isn't loaded.
+			switchToChannel(
+				message.channel.channel,
+				message.msgId,
+				new Date(message.time).getTime()
+			);
 
 			// Close the popup
 			isOpen.value = false;

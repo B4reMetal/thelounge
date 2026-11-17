@@ -95,29 +95,18 @@
 							{'scroll-down-shown': !channel.scrolledToBottom},
 						]"
 						aria-label="Jump to recent messages"
-						@click="messageList.jumpToBottom"
+						@click="messageList?.jumpToBottom()"
 					>
 						<div class="scroll-down-arrow" />
 					</button>
 					<ChatUserList v-if="channel.type === 'channel'" :channel="channel" />
-					<template v-if="store.state.settings.searchEnabled && store.state.settings.enableEnhancedSearch">
-						<MessageList
-							ref="messageList"
-							:network="network"
-							:channel="channel"
-							:is-focused="isFocused"
-							:focused-time="focusedTime"
-						/>
-					</template>
-					<template v-else>
-						<MessageListBasic
-							ref="messageList"
-							:network="network"
-							:channel="channel"
-							:is-focused="isFocused"
-							:focused-time="focusedTime"
-						/>
-					</template>
+					<MessageList
+						ref="messageList"
+						:network="network"
+						:channel="channel"
+						:is-focused="isFocused"
+						:focused-time="focusedTime"
+					/>
 				</div>
 			</div>
 		</div>
@@ -137,7 +126,6 @@ import socket from "../js/socket";
 import eventbus from "../js/eventbus";
 import ParsedMessage from "./ParsedMessage.vue";
 import MessageList from "./MessageList.vue";
-import MessageListBasic from "./MessageList_Basic.vue";
 import ChatInput from "./ChatInput.vue";
 import ChatUserList from "./ChatUserList.vue";
 import SidebarToggle from "./SidebarToggle.vue";
@@ -157,7 +145,6 @@ export default defineComponent({
 	components: {
 		ParsedMessage,
 		MessageList,
-		MessageListBasic,
 		ChatInput,
 		ChatUserList,
 		SidebarToggle,
@@ -173,12 +160,7 @@ export default defineComponent({
 	setup(props, {emit}) {
 		const store = useStore();
 
-		const MessageListType = computed(() => {
-			if (store.state.settings.searchEnabled && store.state.settings.enableEnhancedSearch) return MessageList;
-			return MessageListBasic;
-		})
-
-		const messageList = ref<typeof MessageListType.value>(MessageListType.value);
+		const messageList = ref<InstanceType<typeof MessageList> | null>(null);
 		const topicInput = ref<HTMLInputElement | null>(null);
 
 		const plainTopic = computed(() => {
@@ -294,7 +276,6 @@ export default defineComponent({
 		return {
 			store,
 			messageList,
-			MessageListType,
 			topicInput,
 			plainTopic,
 			specialComponent,

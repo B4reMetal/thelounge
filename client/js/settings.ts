@@ -190,10 +190,6 @@ const defaultConfig = {
 	enhancedContextMenuEnabled: {
 		default: true,
 	},
-	enableEnhancedSearch: {
-		// disable by default for performance reasons
-		default: false,
-	},
 	enableRainbowHotkey: {
 		default: true,
 	},

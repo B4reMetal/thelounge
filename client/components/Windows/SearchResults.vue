@@ -63,7 +63,7 @@
 								v-for="(message, id) in messages"
 								:key="messageKey(message)"
 								class="result"
-								:data-jump-to="store.state.settings.enableEnhancedSearch || undefined"
+								:data-jump-to="store.state.settings.searchEnabled || undefined"
 							>
 								<DateMarker
 									v-if="shouldDisplayDateMarker(message, id)"
@@ -257,7 +257,7 @@ export default defineComponent({
 		// Jump to a search result - navigate to channel with message ID and time
 		// If message isn't in memory, MessageList will scroll to closest match by time
 		const jump = (message: ClientMessage) => {
-			if (!store.state.settings.enableEnhancedSearch || !channel.value) {
+			if (!store.state.settings.searchEnabled || !channel.value) {
 				return;
 			}
 

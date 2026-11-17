@@ -215,6 +215,78 @@ export function receiveLiveMessage(channel: ClientChan, message: SharedMsg): boo
 	return false;
 }
 
+type PendingJump = {
+	channel: ClientChan;
+	time: number;
+	timer: ReturnType<typeof setTimeout>;
+	onCancel?: () => void;
+};
+
+// Jumps waiting for the server to send the history around their target, by
+// channel id. An answer is only applied while its jump is still waiting:
+// one that arrives after the user went elsewhere would replace what the
+// channel shows with an old slice.
+const pendingJumps = new Map<number, PendingJump>();
+
+// How long a jump waits for its answer
+export const pendingJumpTimeout = 30 * 1000;
+
+/**
+ * Records that the history around `time` was asked for to jump to a message
+ * in `channel`. Replaces a jump already waiting there. `onCancel` runs when
+ * the jump is given up rather than answered.
+ */
+export function startPendingJump(channel: ClientChan, time: number, onCancel?: () => void): void {
+	cancelPendingJump(channel.id);
+
+	const timer = setTimeout(() => cancelPendingJump(channel.id), pendingJumpTimeout);
+	pendingJumps.set(channel.id, {channel, time, timer, onCancel});
+	channel.historyLoading = true;
+}
+
+/**
+ * Gives up the jump waiting in a channel, if any: its answer will be ignored.
+ */
+export function cancelPendingJump(chanId: number): void {
+	const pending = pendingJumps.get(chanId);
+
+	if (!pending) {
+		return;
+	}
+
+	clearTimeout(pending.timer);
+	pendingJumps.delete(chanId);
+	pending.channel.historyLoading = false;
+	pending.onCancel?.();
+}
+
+/**
+ * Gives up every waiting jump, for when the connection to the server is lost.
+ */
+export function cancelAllPendingJumps(): void {
+	for (const chanId of [...pendingJumps.keys()]) {
+		cancelPendingJump(chanId);
+	}
+}
+
+/**
+ * Takes the jump an answer from the server is for. Returns false when no jump
+ * for that channel and time is waiting any more, and the answer is to be
+ * ignored.
+ */
+export function takePendingJump(chanId: number, time: number | undefined): boolean {
+	const pending = pendingJumps.get(chanId);
+
+	if (!pending || pending.time !== time) {
+		return false;
+	}
+
+	clearTimeout(pending.timer);
+	pendingJumps.delete(chanId);
+	pending.channel.historyLoading = false;
+	return true;
+}
+
 /**
  * Drops a history slice. The channel is left empty and has to be filled with
  * the latest messages again by asking the server for them.
@@ -227,6 +299,44 @@ export function leaveHistorySlice(channel: ClientChan): void {
 	channel.historySlice = undefined;
 	channel.messages = [];
 	channel.moreHistoryAvailable = true;
+}
+
+/**
+ * Drops the oldest messages beyond `limit`. They are paged back in from the
+ * server when scrolled to, and a jump fetches the history around any message,
+ * so there is no reason to hold more than what is likely to be looked at.
+ *
+ * A history slice is never trimmed: its messages are a window into the past
+ * that the user is reading, not the newest part of the channel.
+ */
+export function trimMessages(channel: ClientChan, limit: number): void {
+	if (channel.historySlice || limit <= 0 || channel.messages.length <= limit) {
+		return;
+	}
+
+	channel.messages.splice(0, channel.messages.length - limit);
+	channel.moreHistoryAvailable = true;
+}
+
+/**
+ * How many messages a channel keeps once a live message arrived in it, 0 for
+ * no limit.
+ */
+export function liveMessageLimit(channel: ClientChan, isActiveChannel: boolean): number {
+	if (!isActiveChannel) {
+		// Nobody is looking at it, keep about what opening it shows
+		return 100;
+	}
+
+	if (channel.scrolledToBottom) {
+		// One history page holds up to 1000 messages when status messages
+		// are condensed or hidden
+		return 1500;
+	}
+
+	// The user is reading older messages (possibly a message jumped to),
+	// leave them alone
+	return 0;
 }
 
 export function toClientChan(shared: SharedNetworkChan): ClientChan {

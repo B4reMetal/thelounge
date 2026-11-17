@@ -42,7 +42,7 @@ function message(id: number) {
 	return msg;
 }
 
-function setup(storedCount: number) {
+function setup(storedCount: number, clientSettings: Record<string, unknown> = {}) {
 	const stored = Array.from({length: storedCount}, (_, i) => message(i + 1));
 	const provider = fakeProvider(stored);
 	const chan = new Chan({name: "#paging", type: ChanType.CHANNEL});
@@ -53,7 +53,7 @@ function setup(storedCount: number) {
 	Object.assign(client, {
 		name: "tester",
 		idMsg: 1,
-		config: {clientSettings: {}},
+		config: {clientSettings},
 		messageProvider: provider,
 		emit: (event: string, data: unknown) => emitted.push({event, data}),
 		find: () => ({network, chan}),
@@ -296,6 +296,26 @@ describe("History paging", function () {
 
 		expect(page!.messages).to.have.lengthOf(100);
 		expect(page!.messages[99]).to.equal(chan.messages[119]);
+	});
+
+	it("pages by 100 whatever an old enableEnhancedSearch setting says", async function () {
+		// user files written before the setting was removed still have it
+		const {chan, network, client, emitted} = setup(400, {
+			searchEnabled: true,
+			enableEnhancedSearch: true,
+		});
+
+		chan.loadMessages(client, network as any, true);
+		await settle();
+
+		expect(emitted[0].data.messages).to.have.lengthOf(100);
+
+		const page = await client.more({target: chan.id, lastId: 400, condensed: false});
+		expect(page!.messages).to.have.lengthOf(100);
+		expect(page!.hasMore).to.equal(true);
+
+		const condensed = await client.more({target: chan.id, lastId: 400, condensed: true});
+		expect(condensed!.messages).to.have.lengthOf(100);
 	});
 
 	it("reports no more history when memory holds everything", async function () {

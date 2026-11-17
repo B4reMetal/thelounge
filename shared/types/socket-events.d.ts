@@ -95,6 +95,8 @@ interface ServerToClientEvents {
 
 	"messages:around": EventHandler<{
 		chan: number;
+		// The time that was asked for
+		time?: number;
 		messages: SharedMsg[];
 		hasMoreBefore: boolean;
 		hasMoreAfter: boolean;

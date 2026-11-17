@@ -1,18 +1,19 @@
 import socket from "../socket";
 import eventbus from "../eventbus";
 import {store} from "../store";
-import {showMessagesAround, showMessagesAfter} from "../chan";
+import {showMessagesAround, showMessagesAfter, takePendingJump} from "../chan";
 
 // Answer to a jump to a message that wasn't loaded: the stored messages around it
 socket.on("messages:around", (data) => {
 	const channel = store.getters.findChannel(data.chan)?.channel;
 
-	if (!channel) {
+	// The user may have gone elsewhere since: the channel shows what it
+	// showed before, not an old slice
+	if (!channel || !takePendingJump(data.chan, data.time)) {
 		return;
 	}
 
 	showMessagesAround(channel, data);
-	channel.historyLoading = false;
 
 	// The message list scrolls to the message it was looking for
 	eventbus.emit("messages:around", data.chan);

@@ -620,7 +620,6 @@ class Client {
 		let index = 0;
 		let hasMore = false;
 
-		// Batch sizes for "more" requests depend on the enableEnhancedSearch setting
 		const {batchSize, maxBatchSize} = this.historyBatchSizes();
 
 		// If client requests -1, send last batch of messages
@@ -754,17 +753,11 @@ class Client {
 		};
 	}
 
+	// A page of history holds this many visible messages. When status
+	// messages are condensed or hidden on the client they don't count,
+	// up to maxBatchSize messages in total.
 	private historyBatchSizes() {
-		const enhancedSearch = Boolean(
-			this.config.clientSettings.searchEnabled &&
-				this.config.clientSettings.enableEnhancedSearch
-		);
-
-		// When enableEnhancedSearch = true send upto 10000 messages at a time
-		return {
-			batchSize: enhancedSearch ? 1000 : 100,
-			maxBatchSize: enhancedSearch ? 10000 : 1000,
-		};
+		return {batchSize: 100, maxBatchSize: 1000};
 	}
 
 	clearHistory(data) {
@@ -822,7 +815,8 @@ class Client {
 				200
 			);
 
-			return {chan: target.chan.id, ...around};
+			// The time tells the client which jump this answers
+			return {chan: target.chan.id, time: data.time, ...around};
 		} catch (err) {
 			log.error("Failed to get messages around time:", String(err));
 			return null;

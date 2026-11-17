@@ -2,7 +2,7 @@ import socket from "../socket";
 import {cleanIrcMessage} from "../../../shared/irc";
 import {store} from "../store";
 import {switchToChannel} from "../router";
-import {receiveLiveMessage} from "../chan";
+import {liveMessageLimit, receiveLiveMessage, trimMessages} from "../chan";
 import {ClientChan, NetChan, ClientMessage} from "../types";
 import {SharedMsg, MessageType} from "../../../shared/types/msg";
 import {ChanType} from "../../../shared/types/chan";
@@ -75,29 +75,9 @@ socket.on("msg", function (data) {
 		notifyMessage(data.chan, channel, store.state.activeChannel, data.msg);
 	}
 
-	let messageLimit = 0;
-
-	if (store.state.settings.searchEnabled && store.state.settings.enableEnhancedSearch) {
-		// Keep messages in memory for search/navigation - windowing (kind of) handles render performance
-		// Only trim if we have an excessive amount (>10000) to prevent memory issues
-		messageLimit = 10000;
-	} else {
-		// if enhanced search is disabled we can be more conservitive
-		// with the amount of messages kept in memory
-		if (!isActiveChannel) {
-			// If message arrives in non active channel, keep only 100 messages
-			messageLimit = 100;
-		} else if (channel.scrolledToBottom) {
-			// If message arrives in active channel, keep 1500 messages if scroll is currently at the bottom
-			// One history load may load up to 1000 messages at once if condendesed or hidden events are enabled
-			messageLimit = 1500;
-		}
-	}
-
 	// A history slice is not trimmed, its end is not the newest message
-	if (shown && messageLimit > 0 && channel.messages.length > messageLimit) {
-		channel.messages.splice(0, channel.messages.length - messageLimit);
-		channel.moreHistoryAvailable = true;
+	if (shown) {
+		trimMessages(channel, liveMessageLimit(channel, Boolean(isActiveChannel)));
 	}
 
 	if (channel.type === ChanType.CHANNEL) {

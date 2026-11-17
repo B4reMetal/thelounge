@@ -27,15 +27,22 @@ const OTHER = "Other changes";
 // can be migrated on first start and older versions may not read it back
 const STORAGE_PATHS = ["server/plugins/messageStorage"];
 
-// Turn one first-parent commit into {group, title}, or null to skip it
-export function classify({subject, body}) {
+// Turn one first-parent commit into {group, title, pr}, or null to skip it.
+// `pr` is set for pull requests merged from this repository's own branches:
+// their number is one of ours. Pull requests from other forks are not linked.
+export function classify({subject, body}, repository = SCHEME.repository) {
 	let branch = "";
 	let title = subject;
+	let pr = null;
 	let m;
 
-	if ((m = /^Merge pull request #\d+ from [^/\s]+\/(\S+)/.exec(subject))) {
-		branch = m[1];
+	if ((m = /^Merge pull request #(\d+) from ([^/\s]+)\/(\S+)/.exec(subject))) {
+		branch = m[3];
 		title = body.split("\n").find((l) => l.trim()) ?? branch;
+
+		if (m[2].toLowerCase() === repository.split("/")[0].toLowerCase()) {
+			pr = Number(m[1]);
+		}
 	} else if ((m = /^Merge branch '([^']+)'(?: into \S+)?\s*(?:\((.*)\))?$/.exec(subject))) {
 		branch = m[1];
 		title = m[2] || branch;
@@ -55,7 +62,7 @@ export function classify({subject, body}) {
 
 	const prefix = branch.includes("/") ? branch.split("/")[0].toLowerCase() : "";
 	const group = GROUPS.find(([, prefixes]) => prefixes.includes(prefix))?.[0] ?? OTHER;
-	return {group, title: sanitize(title.trim())};
+	return {group, title: sanitize(title.trim()), pr};
 }
 
 // No notifications from release notes: put @mentions and cross-repository
@@ -86,14 +93,15 @@ export function renderRefresh({version, image, refreshOf, baseImage, oldBaseDige
 	);
 }
 
-export function render({version, commits, storageChanged, image}) {
+export function render({version, commits, storageChanged, image, repository = SCHEME.repository}) {
 	const groups = new Map();
 
 	for (const c of commits) {
-		const r = classify(c);
+		const r = classify(c, repository);
 
 		if (r) {
-			groups.set(r.group, [...(groups.get(r.group) ?? []), r.title]);
+			const link = r.pr ? ` ([#${r.pr}](https://github.com/${repository}/pull/${r.pr}))` : "";
+			groups.set(r.group, [...(groups.get(r.group) ?? []), r.title + link]);
 		}
 	}
 

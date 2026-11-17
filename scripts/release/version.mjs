@@ -34,6 +34,8 @@ export const SCHEME = {
 	// is that fork's history, not this fork's changes.
 	firstReleaseBase: "83099530",
 	image: "ghcr.io/fhori/thelounge",
+	// Pull requests merged from this repository are linked in the release notes
+	repository: "fHori/thelounge",
 };
 
 const SEMVER =

@@ -68,7 +68,8 @@ first part:
 | Dependencies | `dependabot/`, `deps/`                                   |
 | Maintenance  | `chore/`, `ci/`, `build/`, `refactor/`, `docs/`, `test/` |
 
-Anything else lands under "Other changes". So the way to get good notes is to
+Anything else lands under "Other changes". Each line links to its pull
+request, as long as it was merged from a branch of this repository. So the way to get good notes is to
 name branches with one of these prefixes and give pull requests a title that
 reads well on its own; that title is the line in the notes.
 

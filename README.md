@@ -1,98 +1,31 @@
-# The Lounge (fHori fork)
+# The Lounge (fHori)
 
-A self-hosted web IRC client. This is a fork of
-[The Lounge](https://thelounge.chat/), based on The Lounge 4.4.x, with changes
-aimed mostly at private tracker IRC networks and large message histories.
+A fork of @tetrahydroc's [The Lounge](https://github.com/tetrahydroc/thelounge),
+the self-hosted web IRC client.
 
-It is a fork of a fork:
+## What's different
 
-- [The Lounge](https://github.com/thelounge/thelounge), the original project.
-- [tetrahydroc/thelounge](https://github.com/tetrahydroc/thelounge), which
-  added the shoutbox bridge prettifier, upload backends, the enhanced user list
-  and context menu, reply-to-message and more, with work from cmd430 and
-  other contributors.
-- This fork, which adds full-text search, faster history loading, jump to
-  message, configurable tracker profile links, a few fixes picked from stock
-  The Lounge, and a Docker image.
+- Fast search across your whole history, and jump straight to any result or mention
+- Long histories load quickly and scroll back without limit
+- Security fixes: uploads need a logged-in session, bad data from an IRC server
+  or a browser can't take the server down, and the Docker image runs as a normal
+  user
+- Shoutbox messages relayed by tracker bots show the real sender
+- Right-click a user to open their tracker profile
+- Netsplits and mass reconnects collapse into one line
+- Direct messages get their own section in the sidebar, with pinning
+- Uploads to Catbox, Zipline, rustypaste and others, or local with auto-delete
+- Reply to a message, `/rainbow`, `/cleartopic`
 
-It is not an official release of The Lounge. Do not report problems with this
-fork to the stock project unless you can reproduce them in stock The Lounge.
-
-## Differences from stock The Lounge
-
-Messages and history
-
-- Search uses an SQLite FTS5 (trigram) index. On an existing history the index
-  is built in the background after the upgrade; search falls back to a full
-  scan until it is complete.
-- Jump to message: open a search result or a mention in its channel, even when
-  that part of the history is not loaded.
-- Faster history loading: history is paged from storage on demand, with a
-  history index on `(network, channel, time)`.
-- Mass event detection: bursts of joins/quits from netsplits and reconnects are
-  collapsed into one summary message.
-- Reply to message button, optionally quoting as plain text.
-
-Bridged shoutbox messages
-
-- Messages relayed from tracker website shoutboxes by bridge bots are shown as
-  if the website user had sent them (matchers for Aither, BeyondHD, DarkPeers,
-  HUNO, LST, OnlyEncodes+, ReelFliX, UploadCX and others, see
-  `client/js/helpers/shoutbox-bridge/matchers.ts`). Basic BBCode is stripped.
-
-User list and sidebar
-
-- Enhanced user list (including server-provided user groups) and an enhanced
-  user context menu, both optional.
-- Tracker profile links: right-clicking a user on a configured tracker network
-  offers a link to their profile on the tracker's website.
-- Separate direct message section in the sidebar, with pinned queries and a DM
-  filter; "Jump to" in the sidebar; compact sidebar option.
-
-File uploads
-
-- Selectable upload backend per user: local (with optional auto-deletion, from
-  1 hour to 1 month or a custom time), Catbox, ImageBB, PTScreens, qu.ax, Uguu,
-  OnlyImage, ptpimg, XBackBone, Zipline and rustypaste.
-
-Commands
-
-- `/rainbow` (alias `/rgb`, or Ctrl+R, Cmd+R on macOS, if enabled) sends a rainbow-coloured
-  message.
-- `/cleartopic` clears the channel topic.
-- `thelounge storage vacuum` rewrites message databases to return unused space
-  to the disk (stop The Lounge first).
-
-Most of the client-side changes can be turned on or off in the client settings.
-
-## Upgrading from stock The Lounge or another fork
-
-> **Back up your data folder first.** On first start, this fork upgrades each
-> user's message database (`logs/*.sqlite3`) in place. The upgrade only goes one
-> way: stock The Lounge and older images of other forks cannot open an upgraded
-> database. Restoring the backup is the only way back.
-
-Your configuration, users and history are otherwise kept. Settings from a newer
-stock `config.js` that this fork does not know are reported as `Unknown key` at
-startup and ignored.
-
-## Running with Docker
-
-A multi-architecture image (amd64 and arm64) is published to
-`ghcr.io/fhori/thelounge`. Tags:
-
-- `latest`: the current `master` branch.
-- `X.Y.Z` and `X.Y`: releases.
-- `sha-<short commit>`: every build.
-
-The image keeps its data in `/var/opt/thelounge` (set `THELOUNGE_HOME` to use
-another path), runs as uid 1000 and listens on port 9000. This matches the
-stock image, so an existing stock data volume can be mounted as is.
+## Docker
 
 ```yaml
 services:
   thelounge:
     image: ghcr.io/fhori/thelounge:latest
+    environment:
+      - PUID=1000
+      - PGID=1000
     volumes:
       - ./thelounge:/var/opt/thelounge
     ports:
@@ -100,21 +33,20 @@ services:
     restart: unless-stopped
 ```
 
-The host folder must be writable by uid 1000, or set `user:` to its owner.
+Add a user with `docker compose exec thelounge thelounge add <name>`.
 
-There is no `thelounge` command on the PATH in the image. Run commands through
-Node:
+`latest` is the newest release. Pin a version like `2026.11.0` to upgrade on your
+own schedule, or use `edge` for the newest unreleased changes.
+More options in [docs/DOCKER.md](docs/DOCKER.md).
 
-```sh
-docker compose exec thelounge node /app/index.js add <name>
-docker compose exec thelounge node /app/index.js list
-```
+## Coming from another version
 
-## Running from source
+Back up your data folder first. Your message history is upgraded on first start,
+and other versions of The Lounge can't read it afterwards.
 
-Requirements: [Node.js](https://nodejs.org/) 20 or newer (as in `engines` in
-`package.json`). The Docker image and CI use Node.js 22, so that is the tested
-version. Yarn is provided by Corepack at the version pinned in `package.json`.
+## From source
+
+Needs Node.js 22.
 
 ```sh
 git clone https://github.com/fHori/thelounge.git
@@ -125,32 +57,23 @@ NODE_ENV=production yarn build
 yarn start
 ```
 
-Installed this way, no `thelounge` executable is created. Use
-`node index <command>` instead, for example `node index add <name>`. It is not
-recommended to run The Lounge as root.
-
 ## Configuration
 
-The general [documentation of The Lounge](https://thelounge.chat/docs) still
-applies. Options added by this fork are described in the comments in
-[`defaults/config.js`](defaults/config.js):
+The [The Lounge docs](https://thelounge.chat/docs) apply. Options specific to this
+fork are explained in [`defaults/config.js`](defaults/config.js).
 
-- `allowFileUploadBackendSelection`
-- `maskFileHost`
-- `massEventDetection`
-- `defaultTorrentSiteInfo` and `torrentSites` (tracker profile links)
-- `debug.logs`
+## Reporting issues
 
-## Development
-
-Follow the steps in "Running from source", then:
-
-- `yarn dev` starts The Lounge with hot module reloading.
-- `yarn test` runs the linters and the test suite.
-- `yarn lint` runs the linters only. If Prettier complains, run
-  `yarn format:prettier`.
-- `yarn githooks-install` installs a pre-commit hook that runs Prettier.
+Found a bug? [Open an issue](https://github.com/fHori/thelounge/issues).
+For security problems, please don't open a public issue; see
+[SECURITY.md](SECURITY.md).
 
 ## License
 
-The Lounge is released under the [MIT License](LICENSE).
+MIT
+
+---
+
+> This project leverages AI-assisted development workflows. All architecture,
+> logic, and code are planned, reviewed, and audited by human maintainers,
+> backed by automated test suites.

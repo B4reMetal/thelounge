@@ -4,7 +4,9 @@ import {ChanType} from "../shared/types/chan.js";
 import ClientManager from "../server/clientManager.js";
 import Client from "../server/client.js";
 import log from "../server/log.js";
+import Config from "../server/config.js";
 
+import fs from "fs";
 import sinon from "sinon";
 
 describe("Client", function () {
@@ -104,5 +106,75 @@ describe("Client", function () {
 		expect(network.channels[1].type).to.equal(ChanType.QUERY);
 		expect(network.channels[2].name).to.equal("&foobar");
 		expect(network.channels[2].type).to.equal(ChanType.CHANNEL);
+	});
+
+	describe("renamed settings", function () {
+		let wasPublic: boolean;
+
+		beforeEach(function () {
+			// Users are only saved outside public mode
+			wasPublic = Config.values.public;
+			Config.values.public = false;
+		});
+
+		afterEach(function () {
+			Config.values.public = wasPublic;
+		});
+
+		it("should move settings saved under their old names and write the user file", function () {
+			const manager = new ClientManager();
+			const writeFile = sinon.stub(fs, "writeFileSync");
+			const rename = sinon.stub(fs, "renameSync");
+			const client = new Client(manager, "test", {
+				log: false,
+				password: "foo",
+				sessions: {},
+				clientSettings: {jumptoEabled: false, filterdmsEnabled: false, coloredNicks: false},
+				networks: [],
+			});
+
+			expect(client.config.clientSettings).to.deep.equal({
+				jumpToEnabled: false,
+				filterDmsEnabled: false,
+				coloredNicks: false,
+				searchEnabled: false,
+			});
+
+			// What happens when the user is loaded at startup: the networks are
+			// set up and the hash of the loaded data is taken
+			client.connect();
+			client.save.flush();
+
+			try {
+				sinon.assert.calledOnce(writeFile);
+				sinon.assert.calledOnce(rename);
+				const written = JSON.parse(writeFile.firstCall.args[1] as string);
+				expect(written.clientSettings).to.include({
+					jumpToEnabled: false,
+					filterDmsEnabled: false,
+				});
+				expect(written.clientSettings).to.not.have.property("jumptoEabled");
+				expect(written.clientSettings).to.not.have.property("filterdmsEnabled");
+			} finally {
+				writeFile.restore();
+				rename.restore();
+			}
+		});
+
+		it("should not save the user when no setting was renamed", function () {
+			const manager = new ClientManager();
+			const saveUser = sinon.stub(manager, "saveUser");
+			const client = new Client(manager, "test", {
+				log: false,
+				password: "foo",
+				sessions: {},
+				clientSettings: {jumpToEnabled: false},
+				networks: [],
+			});
+
+			client.connect();
+			client.save.flush();
+			sinon.assert.notCalled(saveUser);
+		});
 	});
 });

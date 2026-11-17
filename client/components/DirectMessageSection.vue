@@ -7,7 +7,7 @@
 		</div>
 
 		<template v-if="!isCollapsed || hasActiveQuery || hasUnread">
-			<div v-if="queries.length > 2 && store.state.settings.filterdmsEnabled && !isCollapsed" class="dm-filter">
+			<div v-if="queries.length > 2 && store.state.settings.filterDmsEnabled && !isCollapsed" class="dm-filter">
 				<input
 					ref="filterInput"
 					v-model="filterText"

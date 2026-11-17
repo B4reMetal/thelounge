@@ -160,10 +160,10 @@ const defaultConfig = {
 	searchEnabled: {
 		default: false,
 	},
-	jumptoEabled: {
+	jumpToEnabled: {
 		default: true,
 	},
-	filterdmsEnabled: {
+	filterDmsEnabled: {
 		default: true,
 	},
 	showAllDMs: {

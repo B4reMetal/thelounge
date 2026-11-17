@@ -20,11 +20,11 @@
 		>
 			<template v-for="(message, idx) in displayedMessages" :key="getMessageKey(message)">
 				<DateMarker
-					v-if="shouldDisplayDateMarker(message, idx)"
+					v-if="shouldDisplayDateMarker(idx)"
 					:message="message as any"
 					:is-focused="isMessageFocused(message)"
 				/>
-				<div v-if="shouldDisplayUnreadMarker(Number(message.id))" class="unread-marker">
+				<div v-if="shouldDisplayUnreadMarker(idx)" class="unread-marker">
 					<span class="unread-marker-text" />
 				</div>
 
@@ -64,11 +64,12 @@
 <script lang="ts">
 import {condensedTypes} from "../../shared/irc";
 import {ChanType} from "../../shared/types/chan";
-import {MessageType, SharedMsg} from "../../shared/types/msg";
+import {MessageType} from "../../shared/types/msg";
 import eventbus from "../js/eventbus";
 import clipboard from "../js/clipboard";
 import socket from "../js/socket";
 import {cancelPendingJump, leaveHistorySlice, startPendingJump} from "../js/chan";
+import {startsNewDay, unreadMarkerIndex} from "../js/helpers/messageMarkers";
 import Message from "./Message.vue";
 import MessageCondensed from "./MessageCondensed.vue";
 import DateMarker from "./DateMarker.vue";
@@ -77,7 +78,6 @@ import {
 	defineComponent,
 	nextTick,
 	onBeforeUnmount,
-	onBeforeUpdate,
 	onMounted,
 	onUnmounted,
 	PropType,
@@ -93,9 +93,6 @@ type CondensedMessageContainer = {
 	messages: ClientMessage[];
 	id?: number;
 };
-
-// TODO: move into component
-let unreadMarkerShown = false;
 
 // Render at most this many messages - keeps DOM manageable
 const MAX_RENDERED_MESSAGES = 500;
@@ -208,21 +205,32 @@ export default defineComponent({
 
 		// Windowed messages for rendering - show MAX_RENDERED_MESSAGES from windowStartIndex
 		// This does NOT depend on scrolledToBottom to avoid reactivity issues
-		const displayedMessages = computed(() => {
-			const all = allCondensedMessages.value;
-			const total = all.length;
+		// Index in allCondensedMessages of the first rendered entry: the
+		// window start index, clamped to the valid range
+		const renderStart = computed(() => {
+			const total = allCondensedMessages.value.length;
 
 			if (total <= MAX_RENDERED_MESSAGES) {
+				return 0;
+			}
+
+			return Math.max(0, Math.min(windowStartIndex.value, total - MAX_RENDERED_MESSAGES));
+		});
+
+		const displayedMessages = computed(() => {
+			const all = allCondensedMessages.value;
+
+			if (all.length <= MAX_RENDERED_MESSAGES) {
 				return all;
 			}
 
-			// Use the window start index, clamped to valid range
-			const start = Math.max(
-				0,
-				Math.min(windowStartIndex.value, total - MAX_RENDERED_MESSAGES)
-			);
-			return all.slice(start, start + MAX_RENDERED_MESSAGES);
+			return all.slice(renderStart.value, renderStart.value + MAX_RENDERED_MESSAGES);
 		});
+
+		// Index in allCondensedMessages of the entry the unread marker goes in front of
+		const unreadIndex = computed(() =>
+			unreadMarkerIndex(allCondensedMessages.value, props.channel.firstUnread)
+		);
 
 		// Check if we can scroll further back in the window (not at start of all messages)
 		const canScrollBack = computed(() => {
@@ -647,32 +655,13 @@ export default defineComponent({
 			socket.emit("messages:after", {target: props.channel.id, afterTime: timeOf(newest)});
 		};
 
-		const shouldDisplayDateMarker = (
-			message: SharedMsg | CondensedMessageContainer,
-			idx: number
-		) => {
-			const previousMessage = displayedMessages.value[idx - 1];
+		// `idx` is the index among the rendered entries; markers depend on the
+		// entry before it in the full list, which may not be rendered
+		const shouldDisplayDateMarker = (idx: number) =>
+			startsNewDay(allCondensedMessages.value, renderStart.value + idx);
 
-			if (!previousMessage) return true;
-
-			const oldDate = new Date(previousMessage.time);
-			const newDate = new Date(message.time);
-
-			return (
-				oldDate.getDate() !== newDate.getDate() ||
-				oldDate.getMonth() !== newDate.getMonth() ||
-				oldDate.getFullYear() !== newDate.getFullYear()
-			);
-		};
-
-		const shouldDisplayUnreadMarker = (id: number) => {
-			if (!unreadMarkerShown && id > props.channel.firstUnread) {
-				unreadMarkerShown = true;
-				return true;
-			}
-
-			return false;
-		};
+		const shouldDisplayUnreadMarker = (idx: number) =>
+			renderStart.value + idx === unreadIndex.value;
 
 		const isPreviousSource = (currentMessage: ClientMessage, idx: number) => {
 			const previousMessage = displayedMessages.value[idx - 1];
@@ -911,10 +900,6 @@ export default defineComponent({
 				await jumpTo(target);
 			}
 		);
-
-		onBeforeUpdate(() => {
-			unreadMarkerShown = false;
-		});
 
 		onBeforeUnmount(() => {
 			stopHolding?.();

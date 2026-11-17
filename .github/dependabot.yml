@@ -16,6 +16,11 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # 2.1.x declares itself an ES module but is CommonJS inside, which
+      # breaks the client build ("require is not defined in ES module scope")
+      - dependency-name: babel-preset-typescript-vue3
+        versions: [">=2.1.0"]
     open-pull-requests-limit: 10
 
   - package-ecosystem: github-actions

@@ -42,7 +42,8 @@ More options in [docs/DOCKER.md](docs/DOCKER.md).
 ## Coming from another version
 
 Back up your data folder first. Your message history is upgraded on first start,
-and other versions of The Lounge can't read it afterwards.
+and other versions of The Lounge can't read it afterwards. A command to convert it
+back is [in progress](https://github.com/fHori/thelounge/pull/11).
 
 ## From source
 
@@ -68,12 +69,12 @@ Found a bug? [Open an issue](https://github.com/fHori/thelounge/issues).
 For security problems, please don't open a public issue; see
 [SECURITY.md](SECURITY.md).
 
+## Development
+
+This project leverages AI-assisted development workflows. All architecture,
+logic, and code are planned, reviewed, and audited by human maintainers,
+backed by automated test suites.
+
 ## License
 
 MIT
-
----
-
-> This project leverages AI-assisted development workflows. All architecture,
-> logic, and code are planned, reviewed, and audited by human maintainers,
-> backed by automated test suites.

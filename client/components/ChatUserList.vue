@@ -134,6 +134,7 @@ import {computed, defineComponent, nextTick, PropType, ref} from "vue";
 import type {UserInMessage} from "../../shared/types/msg";
 import type {ClientChan, ClientUser} from "../js/types";
 import Username from "./Username.vue";
+import groupSlug from "../js/helpers/groupSlug";
 import { useStore } from "../js/store";
 
 const modes = {
@@ -177,26 +178,12 @@ export default defineComponent({
 			});
 		});
 
-		// CSS safe group name cache
-		const groupNameSlugs = new Map<string, string>();
-
-		// Convert group to CSS-safe name
-		const slugify = (group: string) => {
-			if (groupNameSlugs.has(group)) return;
-
-			const groupNormalized = group.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-			const groupCSSSafe = groupNormalized.replace(/^-|-$/g, "");
-
-			return groupNameSlugs.set(group, groupCSSSafe);
-		};
-
 		// Get CSS-safe group name
-		const getGroupSlug = (group: string) => {
-			return groupNameSlugs.get(group) ?? slugify(group);
-		}
+		const getGroupSlug = (group: string) => groupSlug(group);
 
 		const customGroupedUsers = computed(() => {
-			const groups = {};
+			// No prototype, so a group called e.g. "__proto__" is just a key
+			const groups = Object.create(null) as Record<string, unknown[]>;
 
 			if (hasCustomGroups.value) {
 				if (userSearchInput.value && filteredUsers.value) {
@@ -206,7 +193,6 @@ export default defineComponent({
 
 					for (const { name, users } of props.channel.groups ?? []) {
 						groups[name] ??= [];
-						slugify(name);
 
 						for (const user of filtered) {
 							if (!users.includes(user.original.nick)) {
@@ -219,7 +205,6 @@ export default defineComponent({
 				} else {
 					for (const { name, users } of props.channel.groups ?? []) {
 						groups[name] ??= [];
-						slugify(name);
 
 						for (const user of props.channel.users) {
 							if (!users.includes(user.nick)) {

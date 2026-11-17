@@ -25,11 +25,11 @@
 					<p>Unable to retrieve changelog for current release from GitHub.</p>
 					<p>
 						<a
-							v-if="store.state.serverConfiguration?.version"
-							:href="`https://github.com/thelounge/thelounge/releases/tag/v${store.state.serverConfiguration?.version}`"
+							v-if="store.state.versionData.current.url"
+							:href="store.state.versionData.current.url"
 							target="_blank"
 							rel="noopener"
-							>View release notes for this version on GitHub</a
+							>View release notes on GitHub</a
 						>
 					</p>
 				</template>

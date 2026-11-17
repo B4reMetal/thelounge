@@ -11,7 +11,9 @@ socket.on("changelog", function (data) {
 		status = "new-version";
 	} else if (data.packages) {
 		status = "new-packages";
-	} else if (data.current.changelog) {
+	} else if (data.current.changelog || data.expiresAt > 0) {
+		// expiresAt is only set after the release list was fetched, so this is
+		// also "up to date" when there is no release entry for this version
 		status = "up-to-date";
 	} else {
 		status = "error";

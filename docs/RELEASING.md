@@ -23,17 +23,18 @@ Versions are `YEAR.FEATURE.PATCH`, tagged `vYEAR.FEATURE.PATCH`:
 So `2026.14.3` is the 14th feature release of 2026 with three fix releases on
 top. (Releases up to 2026.11 used the month as the middle number; the count
 continues from there.) Release candidates are `YEAR.FEATURE.PATCH-rc.N`.
-A major of 2000 or more can never
-be a stock The Lounge version, so fork tags do not collide with the inherited
-stock tags (`v4.4.3` and earlier), and they sort above all of them. The stock
-base (currently 4.4.3) is named in every release's notes.
+
+A major of 2000 or more can never be a stock The Lounge version, so fork tags
+do not collide with the inherited stock tags (`v4.4.3` and earlier), and they
+sort above all of them. The stock base (currently 4.4.3) is named in every
+release's notes.
 
 ## Image tags (`ghcr.io/fhori/thelounge`)
 
 | Tag              | Meaning                                                            | Moves?                               |
 | ---------------- | ------------------------------------------------------------------ | ------------------------------------ |
 | `latest`         | Newest stable release                                              | On each release that is the newest   |
-| `2026.11`        | Newest patch of that feature release (fixes, base-image refreshes) | Within the line                      |
+| `2026.11`        | Newest patch of that feature release (fixes, base-image refreshes) | Within that feature release          |
 | `2026.11.0`      | Exactly that release                                               | Never (immutable)                    |
 | `next`           | Newest release candidate                                           | On each pre-release                  |
 | `2026.12.0-rc.1` | Exactly that release candidate                                     | Never                                |
@@ -56,7 +57,8 @@ Actions > Release > Run workflow, on `master`:
 
 - **bump** `auto`: a feature release if anything merged since the last
   release is a feature or changes the storage schema, otherwise a patch.
-  The run summary says which. `feature` or `patch` force one or the other.
+  The run summary says when it is a feature release. `feature` or `patch`
+  force one or the other.
 - **version**: an explicit version, overriding bump.
 - **prerelease**: cut a release candidate (`-rc.N`). It publishes `:next` and
   the exact tag, never `:latest`, and the GitHub Release is marked as a

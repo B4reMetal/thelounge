@@ -98,6 +98,13 @@ describe("release version scheme", function () {
 			"sha-0123456",
 		]);
 		expect(V.imageTags({channel: "none"})).to.deep.equal([]);
+		// a release cut from master is also master's newest build
+		expect(
+			V.imageTags({channel: "release", version: "2026.11.1", sha, latest: true, edge: true})
+		).to.deep.equal(["2026.11.1", "sha-0123456", "latest", "edge"]);
+		expect(
+			V.imageTags({channel: "prerelease", version: "2026.12.0-rc.1", sha, edge: true})
+		).to.include("edge");
 		expect(() => V.imageTags({channel: "release", version: "2026.12.0-rc.1", sha})).to.throw();
 	});
 });

@@ -37,6 +37,10 @@ on:
         description: Move the YYYY.M tag
         type: boolean
         default: false
+      edge:
+        description: Also move the edge tag (a release cut from master is master's newest commit)
+        type: boolean
+        default: false
       fresh:
         description: Build without the layer cache, pulling the base image
         type: boolean
@@ -224,10 +228,11 @@ jobs:
           VERSION: ${{ inputs.version }}
           LATEST: ${{ inputs.latest }}
           LINE_LATEST: ${{ inputs.line_latest }}
+          EDGE: ${{ inputs.edge }}
         run: |
           node scripts/release/version.mjs image-tags --image "ghcr.io/${GITHUB_REPOSITORY,,}" \
             --channel "$CHANNEL" --version "$VERSION" --sha "$(git -C built rev-parse HEAD)" \
-            --latest "$LATEST" --line-latest "$LINE_LATEST"
+            --latest "$LATEST" --line-latest "$LINE_LATEST" --edge "$EDGE"
 
       - name: Download digests
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

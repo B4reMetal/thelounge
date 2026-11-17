@@ -39,6 +39,7 @@ import {
 	ConfigNetDefaults,
 	LockedConfigNetDefaults,
 } from "../shared/types/config.js";
+import {userTrackerLimits, userTrackersSetting} from "../shared/trackers.js";
 
 type ServerOptions = {
 	dev: boolean;
@@ -773,11 +774,13 @@ function initializeClient(
 
 		const {target, nick} = data;
 		const networkAndChan = client.find(target);
-		// Only trackers have a use for this, don't hand it out elsewhere
-		const lookup =
-			networkAndChan && Config.getTrackersForHost(networkAndChan.network.host)
-				? client.userIdentLookup.lookup(networkAndChan.network, nick)
-				: Promise.resolve(null);
+		// Answered on any of the user's networks: a tracker they added in
+		// their settings may need it, and it tells them nothing a /whois
+		// wouldn't. The lookup itself only takes nick-like input and a few
+		// requests at a time.
+		const lookup = networkAndChan
+			? client.userIdentLookup.lookup(networkAndChan.network, nick)
+			: Promise.resolve(null);
 
 		void lookup.then((user) => {
 			socket.emit("tracker:user", {target, nick, ...(user ?? {})});
@@ -841,6 +844,15 @@ function initializeClient(
 				typeof newSetting.value === "object" ||
 				typeof newSetting.name !== "string" ||
 				newSetting.name[0] === "_"
+			) {
+				return;
+			}
+
+			// Kept small, it is sent to every client of the user and saved with them
+			if (
+				newSetting.name === userTrackersSetting &&
+				(typeof newSetting.value !== "string" ||
+					newSetting.value.length > userTrackerLimits.storedLength)
 			) {
 				return;
 			}

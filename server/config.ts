@@ -15,9 +15,8 @@ import {
 	type LegacyTorrentSite,
 	type TrackerConfig,
 	type TrackerInfo,
-	trackerIdentPlaceholder,
-	trackerNickPlaceholder,
 } from "../shared/types/network.js";
+import {isUsableProfileUrl, trackerNickPlaceholder} from "../shared/trackers.js";
 
 export type WebIRC = {
 	[key: string]: unknown;
@@ -455,26 +454,6 @@ class Config {
 				log.warn(`run \`chmod o-x "${userLogsPath}"\` to correct it.`);
 			}
 		}
-	}
-}
-
-// A profile address the client can turn into a link: http(s), with a place
-// for the nick or the ident
-function isUsableProfileUrl(url: unknown): url is string {
-	if (
-		typeof url !== "string" ||
-		!(url.includes(trackerNickPlaceholder) || url.includes(trackerIdentPlaceholder))
-	) {
-		return false;
-	}
-
-	try {
-		const {protocol} = new URL(
-			url.replace(trackerNickPlaceholder, "nick").replace(trackerIdentPlaceholder, "1")
-		);
-		return protocol === "https:" || protocol === "http:";
-	} catch {
-		return false;
 	}
 }
 

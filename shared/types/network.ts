@@ -32,6 +32,10 @@ export type SharedNetworkStatus = {
 export type SharedNetwork = {
 	uuid: string;
 	name: string;
+	// Key for the IRC server host, which trackers in the user's settings
+	// are tied to. Derived from the host with a server secret, the host
+	// itself isn't sent.
+	trackerKey: string;
 	nick: string;
 	serverOptions: SharedServerOptions;
 	status: SharedNetworkStatus;
@@ -81,7 +85,4 @@ export type TrackerInfo = {
 	userHost?: string;
 };
 
-// Placeholder in a tracker's `profileUrl` that the nick is put in place of
-export const trackerNickPlaceholder = "{nick}";
-// Placeholder for the user's ident, on trackers where that is their user id
-export const trackerIdentPlaceholder = "{ident}";
+// The placeholders in `profileUrl` are in shared/trackers.ts

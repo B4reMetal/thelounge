@@ -54,12 +54,16 @@ COPY LICENSE ./
 ARG GIT_COMMIT=""
 ENV THELOUNGE_BUILD_COMMIT=${GIT_COMMIT}
 
-# Same user (uid 1000) and data path as the official image, so an existing
-# data volume can be mounted as is
-RUN mkdir -p "$THELOUNGE_HOME" && chown node:node "$THELOUNGE_HOME"
-USER node
+# Runs as uid 1000 with data in /var/opt/thelounge, like the official image,
+# unless PUID/PGID or --user say otherwise (see docs/DOCKER.md). Group 0 may
+# write the data folder, for platforms that run as an arbitrary uid in group 0.
+COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN ln -s docker-entrypoint.sh /usr/local/bin/thelounge \
+	&& mkdir -p "$THELOUNGE_HOME" \
+	&& chown node:0 "$THELOUNGE_HOME" \
+	&& chmod 775 "$THELOUNGE_HOME"
 VOLUME /var/opt/thelounge
 EXPOSE 9000
 
-ENTRYPOINT ["node", "/app/index.js"]
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["start"]

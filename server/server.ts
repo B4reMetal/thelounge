@@ -867,14 +867,21 @@ function initializeClient(
 				typeof query.searchTerm !== "string" ||
 				typeof query.networkUuid !== "string" ||
 				typeof query.channelName !== "string" ||
-				!Number.isInteger(query.offset) ||
+				// A safe integer: larger numbers are integers too, but the
+				// database refuses them
+				!Number.isSafeInteger(query.offset) ||
 				query.offset < 0
 			) {
 				return;
 			}
 
-			const results = await client.search(query);
-			socket.emit("search:results", results);
+			try {
+				socket.emit("search:results", await client.search(query));
+			} catch (err) {
+				// Always answer, the client waits for it
+				log.error(`Search failed for ${client.name}: ${String(err)}`);
+				socket.emit("search:results", {...query, results: []});
+			}
 		});
 
 		socket.on("mute:change", (data) => {

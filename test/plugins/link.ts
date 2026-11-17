@@ -121,6 +121,30 @@ Vivamus bibendum vulputate tincidunt. Sed vitae ligula felis.`;
 		});
 	});
 
+	it("should drop the preview of a page the parser can't handle", function (done) {
+		const url = this._makeUrl("deeply-nested");
+		const message = this.irc.createMessage({
+			text: url,
+		});
+		const rejected: unknown[] = [];
+		const onRejection = (reason: unknown) => rejected.push(reason);
+		process.on("unhandledRejection", onRejection);
+
+		app.get("/deeply-nested", function (req, res) {
+			// Overflows the HTML parser's stack
+			res.send("<template>".repeat(6000));
+
+			setTimeout(() => {
+				process.off("unhandledRejection", onRejection);
+				expect(rejected).to.deep.equal([]);
+				expect(message.previews).to.deep.equal([]);
+				done();
+			}, 300);
+		});
+
+		link(this.irc, this.network.channels[0], message, message.text);
+	});
+
 	it("should truncate head and body", function (done) {
 		const url = this._makeUrl("truncate");
 		const message = this.irc.createMessage({

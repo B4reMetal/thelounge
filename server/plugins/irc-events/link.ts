@@ -316,7 +316,14 @@ function parse(msg: Msg, chan: Chan, preview: LinkPreview, res: FetchRequest, cl
 		return handlePreview(client, chan, msg, preview, res);
 	}
 
-	void promise.then((newRes) => handlePreview(client, chan, msg, preview, newRes));
+	promise
+		.then((newRes) => handlePreview(client, chan, msg, preview, newRes))
+		.catch((err: unknown) => {
+			// The page is whatever a link in a message points at: parsing it
+			// can throw (deeply nested markup overflows the parser's stack)
+			log.debug(`Could not parse the preview of ${preview.link}: ${String(err)}`);
+			removePreview(msg, preview);
+		});
 }
 
 function handlePreview(

@@ -127,4 +127,52 @@ describe("release notes", function () {
 		expect(body).to.include("[!WARNING]");
 		expect(body).not.to.include("Release v2026");
 	});
+
+	it("links pull requests merged from this repository, and only those", function () {
+		const body = N.render({
+			version: "2026.11.0",
+			image: "img",
+			storageChanged: false,
+			repository: "fHori/thelounge",
+			commits: [
+				{
+					subject: "Merge pull request #16 from fHori/fix/upload-auth",
+					body: "Require a token",
+				},
+				{subject: "Merge pull request #10 from someone-else/fix/other", body: "Other fork"},
+				{subject: "Fix a thing (#5013)", body: ""},
+			],
+		});
+		expect(body).to.include(
+			"- Require a token ([#16](https://github.com/fHori/thelounge/pull/16))"
+		);
+		expect(body).to.include("- Other fork\n");
+		expect(body).to.include("- Fix a thing\n");
+		expect(body).not.to.include("5013");
+	});
+
+	it("lists dependency updates and Docker changes in their own sections", function () {
+		const body = N.render({
+			version: "2026.11.0",
+			image: "img",
+			storageChanged: false,
+			commits: [
+				{
+					subject:
+						"Merge pull request #30 from someone/dependabot/npm_and_yarn/minor-and-patch-1a2b3c",
+					body: "Bump the minor-and-patch group with 4 updates",
+				},
+				{subject: "deps: bump undici from 7.30.2 to 7.31.0", body: ""},
+				{
+					subject: "Merge pull request #26 from someone/docker/puid-pgid",
+					body: "Docker: PUID/PGID support",
+				},
+			],
+		});
+		expect(body).to.include(
+			"## Dependencies\n\n- Bump the minor-and-patch group with 4 updates\n- deps: bump undici"
+		);
+		expect(body).to.include("## Features\n\n- Docker: PUID/PGID support");
+		expect(body).not.to.include("[!WARNING]");
+	});
 });

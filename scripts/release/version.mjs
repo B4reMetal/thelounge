@@ -29,10 +29,13 @@ export const SCHEME = {
 	// The stock release this fork is based on, shown in the release notes.
 	// Update it when stock changes are merged in wholesale.
 	stockBase: "4.4.3",
-	// Where the first release's notes start: the last stock commit on master
-	// before the fork's own changes (merge-base with stock master)
-	firstReleaseBase: "b2e31128",
+	// Where the first release's notes start: the commit of the fork this one
+	// is based on (merge-base with tetrahydroc/master). Everything before it
+	// is that fork's history, not this fork's changes.
+	firstReleaseBase: "83099530",
 	image: "ghcr.io/fhori/thelounge",
+	// Pull requests merged from this repository are linked in the release notes
+	repository: "fHori/thelounge",
 };
 
 const SEMVER =

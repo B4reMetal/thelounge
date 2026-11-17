@@ -52,10 +52,48 @@ Actions > Release > Run workflow, on `master`:
 - **dry_run**: run the tests, build both images and write the release notes
   to the run summary, but push, tag and publish nothing. Use it first.
 
-The release notes list the merged pull requests since the previous release,
-grouped by branch prefix (`feat/`, `fix/`, `perf/`, `chore/`...). If message
-storage code changed, the notes start with a warning to back up before
-upgrading. You can edit the notes on GitHub after the release.
+## Release notes
+
+The notes list the pull requests merged since the previous release, one line
+each, titled by the pull request's title. They are grouped by the branch name's
+first part:
+
+| Section      | Branches                                                 |
+| ------------ | -------------------------------------------------------- |
+| Features     | `feat/`, `docker/`                                       |
+| Fixes        | `fix/`, `hotfix/`                                        |
+| Performance  | `perf/`                                                  |
+| Storage      | `storage/`, `sqlite/`                                    |
+| Security     | `security/`                                              |
+| Dependencies | `dependabot/`, `deps/`                                   |
+| Maintenance  | `chore/`, `ci/`, `build/`, `refactor/`, `docs/`, `test/` |
+
+Anything else lands under "Other changes". Each line links to its pull
+request, as long as it was merged from a branch of this repository. So the way to get good notes is to
+name branches with one of these prefixes and give pull requests a title that
+reads well on its own; that title is the line in the notes.
+
+If message storage code changed, the notes start with a warning to back up
+before upgrading. The first release's notes start where this fork branched off
+(`firstReleaseBase` in `scripts/release/version.mjs`).
+
+To see the notes before releasing, either run the Release workflow with
+`dry_run` (they are in the run summary), or locally:
+
+```sh
+node scripts/release/notes.mjs --from v2026.11.0 --to origin/master --version 2026.11.1
+```
+
+You can still edit the notes on GitHub after the release.
+
+## Dependency updates
+
+Dependabot (`.github/dependabot.yml`) opens pull requests every Monday: one
+grouped pull request for minor and patch npm updates, one for GitHub Actions,
+and one for the Node.js base image digest. Major npm versions come one per pull
+request; major Node.js versions are not proposed. New package versions are
+only picked up after three days. These pull requests are merged like any
+other and reach users with the next release, under "Dependencies".
 
 ## Hotfix
 

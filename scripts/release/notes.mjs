@@ -6,19 +6,20 @@
 //
 // Reads first-parent history only: each merged PR is one line, titled by the
 // PR title GitHub puts in the merge commit; direct commits are listed as is.
-// Tested by test/release/notes.ts.
+// Tested in test/release/version.ts.
 
 import {execFileSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
 import {SCHEME} from "./version.mjs";
 
 const GROUPS = [
-	["Features", ["feat", "feature", "features"]],
+	["Features", ["feat", "feature", "features", "docker"]],
 	["Fixes", ["fix", "bugfix", "hotfix"]],
 	["Performance", ["perf"]],
 	["Storage", ["storage", "sqlite"]],
 	["Security", ["security", "sec"]],
-	["Maintenance", ["chore", "ci", "build", "deps", "refactor", "docs", "test", "release"]],
+	["Dependencies", ["dependabot", "deps"]],
+	["Maintenance", ["chore", "ci", "build", "refactor", "docs", "test", "release"]],
 ];
 const OTHER = "Other changes";
 

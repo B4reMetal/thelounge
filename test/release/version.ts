@@ -127,4 +127,29 @@ describe("release notes", function () {
 		expect(body).to.include("[!WARNING]");
 		expect(body).not.to.include("Release v2026");
 	});
+
+	it("lists dependency updates and Docker changes in their own sections", function () {
+		const body = N.render({
+			version: "2026.11.0",
+			image: "img",
+			storageChanged: false,
+			commits: [
+				{
+					subject:
+						"Merge pull request #30 from someone/dependabot/npm_and_yarn/minor-and-patch-1a2b3c",
+					body: "Bump the minor-and-patch group with 4 updates",
+				},
+				{subject: "deps: bump undici from 7.30.2 to 7.31.0", body: ""},
+				{
+					subject: "Merge pull request #26 from someone/docker/puid-pgid",
+					body: "Docker: PUID/PGID support",
+				},
+			],
+		});
+		expect(body).to.include(
+			"## Dependencies\n\n- Bump the minor-and-patch group with 4 updates\n- deps: bump undici"
+		);
+		expect(body).to.include("## Features\n\n- Docker: PUID/PGID support");
+		expect(body).not.to.include("[!WARNING]");
+	});
 });

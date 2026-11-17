@@ -1,0 +1,44 @@
+# Weekly dependency updates, grouped so each week is a handful of pull requests.
+# They merge like any other pull request and reach users with the next release.
+version: 2
+updates:
+  - package-ecosystem: npm # also covers yarn.lock
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Yarn refuses versions published less than a day ago (.yarnrc.yml), and
+    # a few days lets broken releases get pulled before they reach us
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: deps
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # The Node.js base image. Its digest is also refreshed in released images by
+  # the weekly refresh workflow; this keeps the pin in the Dockerfile current.
+  # Major Node.js versions are upgraded deliberately, not by a bot.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: deps
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]

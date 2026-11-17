@@ -2,11 +2,10 @@ import socket from "../socket";
 import eventbus from "../eventbus";
 import type {ClientChan, ClientNetwork, ClientUser} from "../types";
 import {switchToChannel} from "../router";
-import {TypedStore} from "../store";
+import {store as globalStore, TypedStore} from "../store";
 import useCloseChannel from "../hooks/use-close-channel";
 import {ChanType} from "../../../shared/types/chan";
-import { openInNewTab } from "./openInNewTab";
-import {getTrackerProfileUrl} from "./trackerProfile";
+import {hasTrackerProfile, openTrackerProfile} from "./openTrackerProfile";
 import groupSlug from "./groupSlug";
 
 type BaseContextMenuItem = {
@@ -150,15 +149,17 @@ export function generateChannelContextMenu(
 
 	// Add menu items for queries
 	if (channel.type === ChanType.QUERY) {
-		const trackerProfileUrl = getTrackerProfileUrl(network, channel, channel.name);
-
-		if (trackerProfileUrl) {
+		// Like the one in the user menu, only with the enhanced context menu
+		if (
+			globalStore.state.settings.enhancedContextMenuEnabled &&
+			hasTrackerProfile(network, channel, channel.name)
+		) {
 			items.push({
 				label: "Tracker Profile",
 				type: "item",
 				class: "action-open",
 				action() {
-					openInNewTab(trackerProfileUrl);
+					openTrackerProfile(network, channel, channel.name);
 				},
 			});
 		}
@@ -329,9 +330,7 @@ export function generateUserContextMenu(
 			return [];
 		}
 
-		const url = getTrackerProfileUrl(network, channel, user.nick, user.tracker);
-
-		if (!url) {
+		if (!hasTrackerProfile(network, channel, user.nick, user.tracker)) {
 			return [];
 		}
 
@@ -341,7 +340,7 @@ export function generateUserContextMenu(
 				type: "item",
 				class: "action-open",
 				action() {
-					openInNewTab(url);
+					openTrackerProfile(network, channel, user.nick, user.tracker);
 				},
 			},
 		];

@@ -91,6 +91,24 @@ describe("Config trackers", function () {
 			}
 		});
 
+		it("passes on addresses built from the ident, with the users' hostname", function () {
+			Config.values.trackers!.SP = {
+				name: "Seedpool",
+				network: "irc.seedpool.org",
+				profileUrl: "https://seedpool.org/user.php?id={ident}",
+				userHost: "*.seedpool.org",
+			};
+
+			expect(Config.getTrackersForHost("irc.seedpool.org")).to.deep.equal([
+				{
+					id: "SP",
+					name: "Seedpool",
+					profileUrl: "https://seedpool.org/user.php?id={ident}",
+					userHost: "*.seedpool.org",
+				},
+			]);
+		});
+
 		it("ships defaults that load and resolve", function () {
 			Config.values.trackers = _.cloneDeep(defaultConfig.trackers);
 
@@ -98,6 +116,9 @@ describe("Config trackers", function () {
 				{id: "SP", name: "Seedpool", profileUrl: "https://seedpool.org/users/{nick}"},
 			]);
 			// No profiles by nick there, the entry only scopes the bridge matcher
+			expect(Config.getTrackersForHost("irc.gazellegames.net")![0].profileUrl).to.equal(
+				"https://gazellegames.net/user.php?id={ident}"
+			);
 			expect(Config.getTrackersForHost("irc.nebulance.io")![0]).to.not.have.property(
 				"profileUrl"
 			);

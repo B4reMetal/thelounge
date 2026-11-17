@@ -31,6 +31,7 @@ import {SharedChan, ChanType} from "../shared/types/chan.js";
 import {SharedNetwork} from "../shared/types/network.js";
 import {ServerToClientEvents} from "../shared/types/socket-events.js";
 import MassEventAggregator from "./plugins/massEventAggregator.js";
+import UserIdentLookup from "./plugins/userIdentLookup.js";
 
 const events = [
 	"away",
@@ -112,6 +113,7 @@ class Client {
 	highlightExceptionRegex!: RegExp | null;
 	messageProvider?: SqliteMessageStorage;
 	massEventAggregator!: MassEventAggregator;
+	userIdentLookup = new UserIdentLookup();
 
 	fileHash!: string;
 	// Whether settings saved under an old name were moved to the new one on
@@ -941,6 +943,8 @@ class Client {
 				}
 			}
 		}
+
+		this.userIdentLookup.clear();
 
 		this.networks.forEach((network) => {
 			network.quit();

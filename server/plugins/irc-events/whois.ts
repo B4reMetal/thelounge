@@ -25,6 +25,12 @@ export default <IrcEventHandler>function (this: Client, irc, network) {
 	});
 
 	function handleWhois(this: Client, data: WhoisData) {
+		// A reply to a lookup made for a tracker profile link, which the user
+		// didn't ask to see
+		if (this.userIdentLookup.handleWhois(network, data)) {
+			return;
+		}
+
 		let chan = network.getChannel(data.nick);
 
 		if (typeof chan === "undefined") {

@@ -6,6 +6,15 @@ import {MessageType} from "../../../shared/types/msg.js";
 
 export default <IrcEventHandler>function (irc, network) {
 	irc.on("irc error", (data) => {
+		// Part of the reply to a lookup made for a tracker profile link
+		if (
+			data.error === "no_such_nick" &&
+			typeof data.nick === "string" &&
+			this.userIdentLookup.hideNoSuchNick(network, data.nick)
+		) {
+			return;
+		}
+
 		const msg = new Msg({
 			type: MessageType.ERROR,
 			error: data.error,

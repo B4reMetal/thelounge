@@ -1,5 +1,9 @@
 import {expect} from "chai";
-import {getTrackerProfileUrl} from "../../../../client/js/helpers/trackerProfile.js";
+import {
+	getTrackerProfileUrl,
+	resolveTrackerProfileUrl,
+	trackerProfileNeedsUser,
+} from "../../../../client/js/helpers/trackerProfile.js";
 import {ChanType} from "../../../../shared/types/chan.js";
 import type {TrackerInfo} from "../../../../shared/types/network.js";
 
@@ -103,5 +107,67 @@ describe("getTrackerProfileUrl", function () {
 				"ANT"
 			)
 		).to.equal(null);
+	});
+
+	describe("addresses built from the ident", function () {
+		const red: TrackerInfo = {
+			id: "RED",
+			name: "Redacted",
+			channels: ["#redacted"],
+			profileUrl: "https://redacted.example/user.php?id={ident}",
+			userHost: "*.redacted.example",
+		};
+		const network = {trackers: [red]};
+		const user = {ident: "66434", hostname: "Hori.Elite.Redacted.Example"};
+		const query = {type: ChanType.QUERY, name: "Hori"};
+
+		it("need the server to say who the user is", function () {
+			expect(trackerProfileNeedsUser(network, channel("#redacted"))).to.equal(true);
+			expect(trackerProfileNeedsUser({trackers: [seedpool]}, channel("#sp"))).to.equal(false);
+			expect(getTrackerProfileUrl(network, channel("#redacted"), "Hori")).to.equal(null);
+		});
+
+		it("put the ident in, when it is a number and the hostname fits", function () {
+			expect(resolveTrackerProfileUrl(network, channel("#redacted"), "Hori", user)).to.equal(
+				"https://redacted.example/user.php?id=66434"
+			);
+
+			for (const other of [
+				{ident: "~hori", hostname: user.hostname},
+				{ident: "66434", hostname: "hori.elite.other.example"},
+				{ident: "66434", hostname: "redacted.example.evil.test"},
+				{},
+			]) {
+				expect(
+					resolveTrackerProfileUrl(network, channel("#redacted"), "Hori", other)
+				).to.equal(null);
+			}
+		});
+
+		it("work in a query through the hostname, but not in another tracker's channel", function () {
+			expect(trackerProfileNeedsUser(network, query)).to.equal(true);
+			expect(resolveTrackerProfileUrl(network, query, "Hori", user)).to.equal(
+				"https://redacted.example/user.php?id=66434"
+			);
+			expect(trackerProfileNeedsUser(network, channel("#other"))).to.equal(false);
+			expect(resolveTrackerProfileUrl(network, channel("#other"), "Hori", user)).to.equal(
+				null
+			);
+		});
+
+		it("accept any hostname when the tracker doesn't say what its users' look like", function () {
+			const open = {trackers: [{...red, channels: undefined, userHost: undefined}]};
+
+			expect(
+				resolveTrackerProfileUrl(open, query, "Hori", {ident: "5", hostname: "x"})
+			).to.equal("https://redacted.example/user.php?id=5");
+		});
+
+		it("are not used for a bridged user, whose ident is the bridge bot's", function () {
+			expect(trackerProfileNeedsUser(network, channel("#redacted"), "RED")).to.equal(false);
+			expect(
+				resolveTrackerProfileUrl(network, channel("#redacted"), "bob", user, "RED")
+			).to.equal(null);
+		});
 	});
 });

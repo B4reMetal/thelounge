@@ -245,7 +245,14 @@ export function describe(version, existing) {
 // Weekly base-image refreshes are ordinary releases (a new version), so the
 // exact tags X.Y.Z are never re-pushed once published.
 // No year-only tag: under calendar versions "2026" pins nothing meaningful.
-export function imageTags({channel, version = "", sha = "", latest = false, lineLatest = false}) {
+export function imageTags({
+	channel,
+	version = "",
+	sha = "",
+	latest = false,
+	lineLatest = false,
+	edge = false,
+}) {
 	const short = sha.slice(0, 7);
 	const need = (cond, what) => {
 		if (!cond) {
@@ -272,12 +279,19 @@ export function imageTags({channel, version = "", sha = "", latest = false, line
 				tags.push("latest");
 			}
 
+			// A release cut from master is master's newest commit, but its
+			// commit is pushed by the workflow and starts no build of its
+			// own: without this, edge would stay behind the release
+			if (edge) {
+				tags.push("edge");
+			}
+
 			return tags;
 		}
 		case "prerelease":
 			need(isForkVersion(version) && !isStable(version), "a fork pre-release version");
 			need(short, "a commit sha");
-			return [version, "next", `sha-${short}`];
+			return [version, "next", `sha-${short}`, ...(edge ? ["edge"] : [])];
 		default:
 			throw new Error(`unknown channel "${channel}"`);
 	}
@@ -367,7 +381,7 @@ function main(argv) {
 			return emit(describe(a.version, forkVersions(tags ?? gitTags())));
 		}
 
-		// Image tags: --channel C [--version X] [--sha S] [--latest] [--line-latest] [--image I]
+		// Image tags: --channel C [--version X] [--sha S] [--latest] [--line-latest] [--edge] [--image I]
 		case "image-tags": {
 			const list = imageTags({
 				channel: a.channel,
@@ -375,6 +389,7 @@ function main(argv) {
 				sha: a.sha || "",
 				latest: bool(a.latest),
 				lineLatest: bool(a["line-latest"]),
+				edge: bool(a.edge),
 			});
 			const image = a.image || SCHEME.image;
 			return emit({tags: list.map((t) => `${image}:${t}`)});

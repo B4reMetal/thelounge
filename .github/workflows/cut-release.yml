@@ -264,6 +264,10 @@ jobs:
       version: ${{ needs.plan.outputs.version }}
       latest: ${{ needs.plan.outputs.latest == 'true' }}
       line_latest: ${{ needs.plan.outputs.line_latest == 'true' }}
+      # The release commit becomes master's newest commit but starts no build
+      # itself, so the release image is also edge. Not for a refresh or a
+      # hotfix from a release/* branch, which are not master's newest code.
+      edge: ${{ github.ref_name == github.event.repository.default_branch && inputs.refresh != true }}
       # `refresh` only exists when called from refresh.yml; when the workflow
       # is started by hand it is empty, which a boolean input refuses
       fresh: ${{ inputs.refresh == true }}

@@ -20,15 +20,15 @@ base (currently 4.4.3) is named in every release's notes.
 
 ## Image tags (`ghcr.io/fhori/thelounge`)
 
-| Tag              | Meaning                                                        | Moves?                             |
-| ---------------- | -------------------------------------------------------------- | ---------------------------------- |
-| `latest`         | Newest stable release                                          | On each release that is the newest |
-| `2026.11`        | Newest release of that line (patches and base-image refreshes) | Within the line                    |
-| `2026.11.0`      | Exactly that release                                           | Never (immutable)                  |
-| `next`           | Newest release candidate                                       | On each pre-release                |
-| `2026.12.0-rc.1` | Exactly that release candidate                                 | Never                              |
-| `edge`           | Latest master commit, untested by a release                    | On every merge to master           |
-| `sha-abc1234`    | The image built from that commit                               | Never                              |
+| Tag              | Meaning                                                        | Moves?                               |
+| ---------------- | -------------------------------------------------------------- | ------------------------------------ |
+| `latest`         | Newest stable release                                          | On each release that is the newest   |
+| `2026.11`        | Newest release of that line (patches and base-image refreshes) | Within the line                      |
+| `2026.11.0`      | Exactly that release                                           | Never (immutable)                    |
+| `next`           | Newest release candidate                                       | On each pre-release                  |
+| `2026.12.0-rc.1` | Exactly that release candidate                                 | Never                                |
+| `edge`           | Latest master commit, never older than the newest release      | On every merge and release on master |
+| `sha-abc1234`    | The image built from that commit                               | Never                                |
 
 Pin an exact version (`2026.11.0`) if you want to choose when you upgrade.
 Pin a line (`2026.11`) to get security rebuilds without feature changes.

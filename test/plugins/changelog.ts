@@ -39,7 +39,7 @@ describe("changelog", function () {
 
 		it("picks up the current release and a newer one", function () {
 			const versions = updateVersions(
-				JSON.stringify([release("v99.0.0"), release("v98.0.0"), release(current)])
+				JSON.stringify([release("v9999.0.0"), release("v9998.0.0"), release(current)])
 			);
 
 			expect(versions.current.changelog).to.equal(`<p>${current}</p>`);
@@ -49,8 +49,8 @@ describe("changelog", function () {
 			expect(changelog.isUpdateAvailable).to.equal(true);
 			expect(versions.latest).to.deep.equal({
 				prerelease: false,
-				version: "v99.0.0",
-				url: "https://github.com/fHori/thelounge/releases/tag/v99.0.0",
+				version: "v9999.0.0",
+				url: "https://github.com/fHori/thelounge/releases/tag/v9999.0.0",
 			});
 		});
 
@@ -65,10 +65,10 @@ describe("changelog", function () {
 		it("ignores pre-releases, drafts and malformed entries", function () {
 			const versions = updateVersions(
 				JSON.stringify([
-					release("v99.0.0-rc.1", {prerelease: true}),
-					release("v98.0.0", {draft: true}),
+					release("v9999.0.0-rc.1", {prerelease: true}),
+					release("v9998.0.0", {draft: true}),
 					release("not-a-version"),
-					{tag_name: "v97.0.0"},
+					{tag_name: "v9997.0.0"},
 					null,
 					release(current),
 				])
@@ -79,7 +79,7 @@ describe("changelog", function () {
 		});
 
 		it("clears a previously found update", function () {
-			updateVersions(JSON.stringify([release("v99.0.0")]));
+			updateVersions(JSON.stringify([release("v9999.0.0")]));
 			expect(changelog.isUpdateAvailable).to.equal(true);
 
 			const versions = updateVersions(JSON.stringify({message: "Not Found"}));

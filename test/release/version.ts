@@ -10,11 +10,11 @@ const at = (d: string) => new Date(`${d}T12:00:00Z`);
 const stock = ["v1.0.0", "v2.0.0-pre.1", "v3.0.0-rc.6", "v4.4.3", "v4.5.2", "v4.6.0-pre.2"];
 
 describe("release version scheme", function () {
-	it("ignores stock tags and starts at YYYY.M.0", function () {
+	it("ignores stock tags and starts at YEAR.1.0", function () {
 		const r = V.nextVersion({tags: stock, now: at("2026-11-16")});
 		expect(r).to.include({
-			version: "2026.11.0",
-			tag: "v2026.11.0",
+			version: "2026.1.0",
+			tag: "v2026.1.0",
 			latest: true,
 			previousTag: "",
 		});
@@ -36,13 +36,26 @@ describe("release version scheme", function () {
 		expect([...list].sort(V.compare)).to.deep.equal([...list].sort(semver.compare));
 	});
 
-	it("bumps the patch within a month and starts a new line in a new month", function () {
-		const tags = [...stock, "v2026.11.0"];
-		expect(V.nextVersion({tags, now: at("2026-11-30")}).version).to.equal("2026.11.1");
-		expect(V.nextVersion({tags, now: at("2026-12-01")}).version).to.equal("2026.12.0");
-		expect(V.nextVersion({tags, bump: "patch", now: at("2027-02-01")}).version).to.equal(
-			"2026.11.1"
-		);
+	it("bumps the feature number for features and the patch for the rest", function () {
+		const tags = [...stock, "v2026.11.0", "v2026.11.1"];
+		const next = (o: object): string =>
+			V.nextVersion({tags, now: at("2026-11-30"), ...o}).version as string;
+		expect(next({})).to.equal("2026.11.2");
+		expect(next({features: true})).to.equal("2026.12.0");
+		expect(next({bump: "feature"})).to.equal("2026.12.0");
+		expect(next({bump: "patch", features: true})).to.equal("2026.11.2");
+		// Past 12: the middle number is a count, not a month
+		expect(V.nextVersion({tags: ["v2026.12.0"], features: true}).version).to.equal("2026.13.0");
+		expect(() => V.nextVersion({tags, bump: "major"})).to.throw();
+	});
+
+	it("starts the count again in a new year, but patches keep their year", function () {
+		const tags = ["v2026.14.3"];
+		const next = (o: object): string =>
+			V.nextVersion({tags, now: at("2027-01-05"), ...o}).version as string;
+		expect(next({features: true})).to.equal("2027.1.0");
+		expect(next({})).to.equal("2026.14.4");
+		expect(next({bump: "patch"})).to.equal("2026.14.4");
 	});
 
 	it("numbers release candidates and finalises them", function () {
@@ -55,6 +68,9 @@ describe("release version scheme", function () {
 			previousTag: "v2026.11.1-rc.1",
 		});
 		const final = V.nextVersion({tags, now: at("2026-11-20")});
+		expect(
+			V.nextVersion({tags, prerelease: true, features: true, now: at("2026-11-20")}).version
+		).to.equal("2026.12.0-rc.1");
 		expect(final).to.include({version: "2026.11.1", latest: true, previousTag: "v2026.11.0"});
 	});
 
@@ -68,7 +84,7 @@ describe("release version scheme", function () {
 		for (const bad of [
 			"4.4.3-hori.1",
 			"2026.01.0",
-			"2026.13.0",
+			"2026.0.0",
 			"2026.11.0+x",
 			"2026.11.0-beta.1",
 		]) {

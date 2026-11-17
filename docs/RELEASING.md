@@ -11,27 +11,38 @@ that follow this fork track master directly.
 
 ## Versions
 
-Versions are calendar based: `YYYY.M.PATCH`, tagged `vYYYY.M.PATCH`
-(for example `v2026.11.0`, then `v2026.11.1`, and `v2026.12.0` in December).
-Release candidates are `YYYY.M.PATCH-rc.N`. A major of 2000 or more can never
+Versions are `YEAR.FEATURE.PATCH`, tagged `vYEAR.FEATURE.PATCH`:
+
+- **FEATURE** goes up for a release with new features (a merged `feat/` or
+  `docker/` branch) or a storage schema change: `2026.11.2` -> `2026.12.0`.
+- **PATCH** goes up for anything else: fixes, dependency updates and
+  base-image refreshes: `2026.12.0` -> `2026.12.1`.
+- The first feature release of a new year is `YEAR.1.0` (`2027.1.0`). Patches
+  keep their year: a fix to `2026.14.3` in January is `2026.14.4`.
+
+So `2026.14.3` is the 14th feature release of 2026 with three fix releases on
+top. (Releases up to 2026.11 used the month as the middle number; the count
+continues from there.) Release candidates are `YEAR.FEATURE.PATCH-rc.N`.
+A major of 2000 or more can never
 be a stock The Lounge version, so fork tags do not collide with the inherited
 stock tags (`v4.4.3` and earlier), and they sort above all of them. The stock
 base (currently 4.4.3) is named in every release's notes.
 
 ## Image tags (`ghcr.io/fhori/thelounge`)
 
-| Tag              | Meaning                                                        | Moves?                               |
-| ---------------- | -------------------------------------------------------------- | ------------------------------------ |
-| `latest`         | Newest stable release                                          | On each release that is the newest   |
-| `2026.11`        | Newest release of that line (patches and base-image refreshes) | Within the line                      |
-| `2026.11.0`      | Exactly that release                                           | Never (immutable)                    |
-| `next`           | Newest release candidate                                       | On each pre-release                  |
-| `2026.12.0-rc.1` | Exactly that release candidate                                 | Never                                |
-| `edge`           | Latest master commit, never older than the newest release      | On every merge and release on master |
-| `sha-abc1234`    | The image built from that commit                               | Never                                |
+| Tag              | Meaning                                                            | Moves?                               |
+| ---------------- | ------------------------------------------------------------------ | ------------------------------------ |
+| `latest`         | Newest stable release                                              | On each release that is the newest   |
+| `2026.11`        | Newest patch of that feature release (fixes, base-image refreshes) | Within the line                      |
+| `2026.11.0`      | Exactly that release                                               | Never (immutable)                    |
+| `next`           | Newest release candidate                                           | On each pre-release                  |
+| `2026.12.0-rc.1` | Exactly that release candidate                                     | Never                                |
+| `edge`           | Latest master commit, never older than the newest release          | On every merge and release on master |
+| `sha-abc1234`    | The image built from that commit                                   | Never                                |
 
 Pin an exact version (`2026.11.0`) if you want to choose when you upgrade.
-Pin a line (`2026.11`) to get security rebuilds without feature changes.
+Pin a feature release (`2026.11`) to get fixes and security rebuilds without
+feature changes.
 Use `latest` to follow releases.
 
 `thelounge --version`, the start-up log and the Help page show the version.
@@ -43,8 +54,9 @@ same thing (`docker inspect`).
 
 Actions > Release > Run workflow, on `master`:
 
-- **bump** `auto`: `YYYY.M.0` for the first release in a month, otherwise the
-  next patch. `patch`: the next patch of the newest release.
+- **bump** `auto`: a feature release if anything merged since the last
+  release is a feature or changes the storage schema, otherwise a patch.
+  The run summary says which. `feature` or `patch` force one or the other.
 - **version**: an explicit version, overriding bump.
 - **prerelease**: cut a release candidate (`-rc.N`). It publishes `:next` and
   the exact tag, never `:latest`, and the GitHub Release is marked as a

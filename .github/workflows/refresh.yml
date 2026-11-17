@@ -32,9 +32,8 @@ jobs:
     with:
       refresh: true
       # Version bump of a refresh release, the one setting:
-      #   patch: 2026.11.0 -> 2026.11.1; stays in the YYYY.M line, so :2026.11
-      #          moves to it and people pinned to 2026.11 get the new base
-      #   auto:  the calendar rule; in a new month it starts a new line
-      #          (2026.11.0 -> 2026.12.0), :2026.11 stays on the old base
+      #   patch: 2026.11.0 -> 2026.11.1; stays in the feature release, so
+      #          :2026.11 moves to it and people pinned to 2026.11 get the new base
+      #   feature: 2026.11.0 -> 2026.12.0; :2026.11 stays on the old base
       bump: patch
       dry_run: ${{ inputs.dry_run || false }}

@@ -1,5 +1,10 @@
 # The Lounge (fHori)
 
+[![Latest release](https://img.shields.io/github/v/release/fHori/thelounge?sort=semver&display_name=tag&label=latest)](https://github.com/fHori/thelounge/releases/latest)
+[![Edge build](https://img.shields.io/github/actions/workflow/status/fHori/thelounge/build.yml?branch=master&label=edge)](https://github.com/fHori/thelounge/actions/workflows/build.yml?query=branch%3Amaster)
+[![Docker image](https://img.shields.io/badge/docker-ghcr.io%2Ffhori%2Fthelounge-2496ED?logo=docker&logoColor=white)](https://github.com/fHori/thelounge/pkgs/container/thelounge)
+[![License](https://img.shields.io/github/license/fHori/thelounge)](LICENSE)
+
 A fork of @tetrahydroc's [The Lounge](https://github.com/tetrahydroc/thelounge),
 the self-hosted web IRC client.
 

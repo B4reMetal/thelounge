@@ -91,6 +91,21 @@ jobs:
       - name: Test
         run: yarn test:mocha
 
+      # The tests run through a TypeScript loader that papers over ESM import
+      # mistakes; start the built server under plain Node, as the image does
+      - name: Start the built server
+        run: |
+          export THELOUNGE_HOME=$(mktemp -d)
+          node index.js start > server.log 2>&1 &
+          for _ in $(seq 30); do
+            curl -sf -o /dev/null http://127.0.0.1:9000/ && { kill $!; exit 0; }
+            kill -0 $! 2>/dev/null || break
+            sleep 1
+          done
+          cat server.log
+          echo "::error::the built server did not start"
+          exit 1
+
   # Each architecture builds on a native runner, in parallel with the tests.
   # Without push this only checks that the Dockerfile builds.
   image:

@@ -2,7 +2,7 @@ import _ from "lodash";
 import log from "../log.js";
 import fs from "fs";
 import path from "path";
-import WebPushAPI from "web-push";
+import * as WebPushAPI from "web-push";
 import Config from "../config.js";
 import Client from "../client.js";
 import * as os from "os";

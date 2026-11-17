@@ -11,11 +11,7 @@
 				</template>
 				<template v-else>
 					Connect
-					<template
-						v-if="config?.lockNetwork"
-					>
-						to {{ defaults.name }}
-					</template>
+					<template v-if="config?.lockNetwork"> to {{ defaults.name }} </template>
 				</template>
 			</h1>
 			<template v-if="!config?.lockNetwork">
@@ -453,7 +449,7 @@ export type NetworkFormDefaults = Partial<ClientNetwork> & {
 	port?: number;
 	sasl?: string;
 	password?: string;
-	hasSTSPolicy?: boolean
+	hasSTSPolicy?: boolean;
 	saslAccount?: string;
 	saslPassword?: string;
 	leaveMessage?: string;
@@ -516,7 +512,6 @@ export default defineComponent({
 		};
 
 		watch(
-
 			() => props.defaults?.commands,
 			() => {
 				void nextTick(() => {
@@ -526,7 +521,6 @@ export default defineComponent({
 		);
 
 		watch(
-
 			() => props.defaults?.tls,
 			(isSecureChecked) => {
 				const ports = [6667, 6697];

@@ -32,7 +32,14 @@ function getVersion() {
 	}
 
 	const version = `v${packageJson.version}`;
-	return gitCommit ? `source (${gitCommit} / ${version})` : version;
+
+	if (gitCommit) {
+		return `source (${gitCommit} / ${version})`;
+	}
+
+	// Same as server/helper.ts getVersion: Docker builds pass the commit
+	const buildCommit = process.env.THELOUNGE_BUILD_COMMIT?.slice(0, 7);
+	return buildCommit ? `${version} (${buildCommit})` : version;
 }
 
 function getVersionCacheBust() {

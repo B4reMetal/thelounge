@@ -1,0 +1,115 @@
+# Releasing
+
+Releases are cut by the **Release** workflow (`.github/workflows/cut-release.yml`).
+It tests the commit, bumps `package.json`, tags, builds and publishes the
+images, and creates the GitHub Release with notes. Nothing else creates
+versioned images. The version scheme and the image tag policy are defined in
+`scripts/release/version.mjs`.
+
+Keep master releasable. Every merge is published as `:edge`, and other builds
+that follow this fork track master directly.
+
+## Versions
+
+Versions are calendar based: `YYYY.M.PATCH`, tagged `vYYYY.M.PATCH`
+(for example `v2026.11.0`, then `v2026.11.1`, and `v2026.12.0` in December).
+Release candidates are `YYYY.M.PATCH-rc.N`. A major of 2000 or more can never
+be a stock The Lounge version, so fork tags do not collide with the inherited
+stock tags (`v4.4.3` and earlier), and they sort above all of them. The stock
+base (currently 4.4.3) is named in every release's notes.
+
+## Image tags (`ghcr.io/fhori/thelounge`)
+
+| Tag              | Meaning                                                        | Moves?                             |
+| ---------------- | -------------------------------------------------------------- | ---------------------------------- |
+| `latest`         | Newest stable release                                          | On each release that is the newest |
+| `2026.11`        | Newest release of that line (patches and base-image refreshes) | Within the line                    |
+| `2026.11.0`      | Exactly that release                                           | Never (immutable)                  |
+| `next`           | Newest release candidate                                       | On each pre-release                |
+| `2026.12.0-rc.1` | Exactly that release candidate                                 | Never                              |
+| `edge`           | Latest master commit, untested by a release                    | On every merge to master           |
+| `sha-abc1234`    | The image built from that commit                               | Never                              |
+
+Pin an exact version (`2026.11.0`) if you want to choose when you upgrade.
+Pin a line (`2026.11`) to get security rebuilds without feature changes.
+Use `latest` to follow releases.
+
+`thelounge --version`, the start-up log and the Help page show the version.
+Images also show the commit, for example `v2026.11.0 (1a2b3c4)`. The labels
+`org.opencontainers.image.version`, `.revision` and `.base.digest` say the
+same thing (`docker inspect`).
+
+## Cut a release
+
+Actions > Release > Run workflow, on `master`:
+
+- **bump** `auto`: `YYYY.M.0` for the first release in a month, otherwise the
+  next patch. `patch`: the next patch of the newest release.
+- **version**: an explicit version, overriding bump.
+- **prerelease**: cut a release candidate (`-rc.N`). It publishes `:next` and
+  the exact tag, never `:latest`, and the GitHub Release is marked as a
+  pre-release. Running the workflow again without the box finalises it.
+- **dry_run**: run the tests, build both images and write the release notes
+  to the run summary, but push, tag and publish nothing. Use it first.
+
+The release notes list the merged pull requests since the previous release,
+grouped by branch prefix (`feat/`, `fix/`, `perf/`, `chore/`...). If message
+storage code changed, the notes start with a warning to back up before
+upgrading. You can edit the notes on GitHub after the release.
+
+## Hotfix
+
+If master is releasable, cut a release with bump `patch`.
+
+To fix an older line while master has moved on, create a `release/2026.11`
+branch from the tag, merge the fix into it, and run the workflow on that branch
+with bump `patch` or an explicit version (`2026.11.2`). The release is not
+tagged `latest` unless it is newer than every other release.
+
+## Weekly base-image refresh
+
+The **Refresh base image** workflow runs every Monday. If
+`node:22-bookworm-slim` has a new digest since the newest release was built,
+it cuts a new release of the same code on the new base. The bump is set in
+`refresh.yml`, `patch` by default, so `2026.11.0` becomes `2026.11.1` and
+`:2026.11` and `:latest` move to it. The notes of that release say that only
+the base image changed. When the base has not changed, or there is no release
+yet, the workflow does nothing.
+
+## If a run fails
+
+- Use **Re-run failed jobs**. Every step can safely run again: a tag that an
+  earlier attempt pushed is reused, and an existing GitHub Release is updated.
+- A tag without a GitHub Release blocks new releases. To finish it, run the
+  workflow with `version` set to that tag; this builds, publishes and
+  releases the tag. Or delete it (see below).
+- "Re-run all jobs" plans again. With the block above it stops instead of
+  skipping to the next number.
+- If the push of the version commit fails because master moved, run the
+  workflow again. The new commits have to be tested first.
+
+## Roll back
+
+For users: switch the image back to the previous exact version
+(`ghcr.io/fhori/thelounge:2026.11.0`). If the bad release migrated the
+message database, restore the backup of `logs/` taken before the upgrade.
+An older version may not read a migrated database.
+
+To withdraw a bad release:
+
+1. Point `latest` (and the line tag) back to the previous release:
+   `docker buildx imagetools create -t ghcr.io/fhori/thelounge:latest ghcr.io/fhori/thelounge:2026.11.0`
+2. `gh release delete v2026.11.1 --cleanup-tag` (or mark it as a pre-release
+   on GitHub, so the update check skips it).
+3. Optionally, delete the package version on GitHub (Packages > thelounge >
+   versions).
+4. Fix the problem and cut a new release. Do not reuse the number.
+
+## Setup notes
+
+- The workflows only use `GITHUB_TOKEN`; there are no secrets to set.
+- The version commit is pushed to master by `github-actions[bot]`. If master
+  gets branch protection that requires pull requests, either let GitHub
+  Actions bypass it, or set `COMMIT_BUMP: "false"` in `cut-release.yml`. Then
+  the tag goes on the tested commit and only the image carries the version.
+  `package.json` in git keeps the old one.

@@ -1,0 +1,273 @@
+# Build, test and publish, as one reusable piece. Called by build.yml (pull
+# requests, master pushes) and cut-release.yml (releases), so a release builds
+# its own images: a tag pushed with GITHUB_TOKEN does not start other
+# workflows, and this needs no personal token.
+name: Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit, branch or tag to build
+        type: string
+        required: true
+      run_tests:
+        type: boolean
+        default: true
+      build_images:
+        type: boolean
+        default: true
+      push:
+        description: Push the images and tag them (false only checks they build)
+        type: boolean
+        default: false
+      channel:
+        description: "Image tag set, see scripts/release/version.mjs: none, edge, release, prerelease"
+        type: string
+        default: none
+      version:
+        description: Release version baked into the image (empty for edge and pull requests)
+        type: string
+        default: ""
+      latest:
+        description: Move the latest tag
+        type: boolean
+        default: false
+      line_latest:
+        description: Move the YYYY.M tag
+        type: boolean
+        default: false
+      fresh:
+        description: Build without the layer cache, pulling the base image
+        type: boolean
+        default: false
+    outputs:
+      digest:
+        description: Digest of the published multi-platform image
+        value: ${{ jobs.publish.outputs.digest }}
+
+permissions:
+  contents: read
+
+env:
+  # The base image, resolved to a digest at build time. Keep the tag in step
+  # with NODE_VERSION in the Dockerfile.
+  BASE_IMAGE: docker.io/library/node:22-bookworm-slim
+
+jobs:
+  test:
+    if: inputs.run_tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.x
+
+      # package.json pins yarn 4 via "packageManager"; corepack provides it
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install
+        run: yarn install --immutable
+
+      - name: Build
+        run: yarn build
+        env:
+          NODE_ENV: production
+
+      - name: Test
+        run: yarn test:mocha
+
+  # Each architecture builds on a native runner, in parallel with the tests.
+  # Without push this only checks that the Dockerfile builds.
+  image:
+    if: inputs.build_images
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Names
+        run: |
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+          echo "GIT_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to ghcr.io
+        if: inputs.push
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pin the base by digest, so the label below says exactly what the image
+      # was built on (the weekly refresh compares it)
+      - name: Resolve the base image
+        run: |
+          digest=$(docker buildx imagetools inspect "$BASE_IMAGE" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ $digest == sha256:* ]] || { echo "::error::could not resolve $BASE_IMAGE"; exit 1; }
+          echo "BASE_DIGEST=$digest" >> "$GITHUB_ENV"
+
+      - name: Labels
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.IMAGE }}
+          labels: |
+            org.opencontainers.image.version=${{ inputs.version || 'edge' }}
+            org.opencontainers.image.revision=${{ env.GIT_COMMIT }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.base.name=${{ env.BASE_IMAGE }}
+            org.opencontainers.image.base.digest=${{ env.BASE_DIGEST }}
+
+      # Pushed untagged, by digest; the publish job tags the combined image
+      - name: Build
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BASE_IMAGE=${{ env.BASE_IMAGE }}@${{ env.BASE_DIGEST }}
+            VERSION=${{ inputs.version }}
+            GIT_COMMIT=${{ env.GIT_COMMIT }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ inputs.push }}
+          # Build provenance and an SBOM, attached to pushed images only
+          provenance: ${{ inputs.push && 'mode=max' || 'false' }}
+          sbom: ${{ inputs.push }}
+          pull: ${{ inputs.fresh }}
+          no-cache: ${{ inputs.fresh }}
+          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_PAIR }}
+
+      - name: Save digest
+        if: inputs.push
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        if: inputs.push
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  # Tags the amd64 + arm64 images as one, once the tests have passed too
+  # (or were not asked for: releases test before they tag).
+  publish:
+    needs: [test, image]
+    if: >-
+      !cancelled() && inputs.push && inputs.channel != 'none'
+      && needs.image.result == 'success'
+      && (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+
+    steps:
+      # The tag policy script comes from the workflow's own commit, not from
+      # the ref being built
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: scripts/release
+          persist-credentials: false
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+          path: built
+          persist-credentials: false
+
+      - name: Image tags
+        id: tags
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          VERSION: ${{ inputs.version }}
+          LATEST: ${{ inputs.latest }}
+          LINE_LATEST: ${{ inputs.line_latest }}
+        run: |
+          node scripts/release/version.mjs image-tags --image "ghcr.io/${GITHUB_REPOSITORY,,}" \
+            --channel "$CHANNEL" --version "$VERSION" --sha "$(git -C built rev-parse HEAD)" \
+            --latest "$LATEST" --line-latest "$LINE_LATEST"
+
+      - name: Download digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag the multi-platform image
+        id: push
+        working-directory: /tmp/digests
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          args=()
+          while read -r tag; do [[ -n $tag ]] && args+=(-t "$tag"); done <<< "$TAGS"
+          sources=()
+          for d in *; do sources+=("$image@sha256:$d"); done
+          docker buildx imagetools create "${args[@]}" "${sources[@]}"
+          digest=$(docker buildx imagetools inspect "${args[1]}" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          { echo "### Published $image@$digest"; echo "- ${TAGS//$'\n'/$'\n'- }"; } >> "$GITHUB_STEP_SUMMARY"
+
+      # Signed provenance on GitHub (gh attestation verify), keyed to the
+      # image digest; uses the workflow's OIDC token, no secret needed
+      - name: Attest
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-name: ${{ steps.push.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

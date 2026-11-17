@@ -1,0 +1,316 @@
+# Cuts a release: tests, version bump commit and tag, images, GitHub Release.
+# Run it from Actions > Release > Run workflow; see docs/RELEASING.md.
+# refresh.yml calls it weekly to cut a base-image refresh release.
+#
+# Everything uses GITHUB_TOKEN. Its tag push does not start other workflows,
+# so the images are built here, through the reusable pipeline.yml.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "auto: YYYY.M.0 in a new month, else next patch. patch: next patch of the newest release (hotfix)"
+        type: choice
+        options: [auto, patch]
+        default: auto
+      version:
+        description: "Explicit version (overrides bump), e.g. 2026.11.3 or 2026.12.0-rc.1. An existing tag resumes that release."
+        type: string
+        default: ""
+      prerelease:
+        description: Release candidate (-rc.N; publishes :next, not :latest)
+        type: boolean
+        default: false
+      dry_run:
+        description: "Dry run: test, build and write the notes, but push, tag and publish nothing"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      refresh:
+        description: Base-image refresh of the newest release (cut only if the base image changed)
+        type: boolean
+        default: false
+      bump:
+        type: string
+        default: patch
+      version:
+        type: string
+        default: ""
+      prerelease:
+        type: boolean
+        default: false
+      dry_run:
+        type: boolean
+        default: false
+
+# One release at a time; a second one waits, it is never cancelled
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Keep in step with pipeline.yml
+  BASE_IMAGE: docker.io/library/node:22-bookworm-slim
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      skip: ${{ steps.plan.outputs.skip }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      exists: ${{ steps.plan.outputs.exists }}
+      latest: ${{ steps.plan.outputs.latest }}
+      line_latest: ${{ steps.plan.outputs.line_latest }}
+      previous_tag: ${{ steps.plan.outputs.previous_tag }}
+      first_base: ${{ steps.plan.outputs.first_base }}
+      base_sha: ${{ steps.plan.outputs.base_sha }}
+      refresh_of: ${{ steps.plan.outputs.refresh_of }}
+      old_base_digest: ${{ steps.plan.outputs.old_base_digest }}
+      new_base_digest: ${{ steps.plan.outputs.new_base_digest }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # all tags
+          persist-credentials: false
+
+      - name: Log in to ghcr.io
+        if: inputs.refresh
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REFRESH: ${{ inputs.refresh }}
+          BUMP: ${{ inputs.bump }}
+          VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          S=scripts/release/version.mjs
+          out() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+          note() { echo "$1" | tee -a "$GITHUB_STEP_SUMMARY"; }
+
+          # An unfinished release (tag without GitHub Release) blocks new
+          # ones, so a full re-run cannot skip ahead to the next number
+          newest_tag=$(node $S forks | tail -n 1)
+          if [[ -n $newest_tag && -z $VERSION ]] && ! gh release view "$newest_tag" > /dev/null 2>&1; then
+            echo "::error::$newest_tag is tagged but has no GitHub Release. Finish it (run with version=$newest_tag) or delete the tag first."
+            exit 1
+          fi
+
+          if [[ $REFRESH == true ]]; then
+            newest=$(node $S newest | sed -n 's/^tag=//p')
+            if [[ -z $newest ]]; then
+              note "No release yet: nothing to refresh."
+              out skip true
+              exit 0
+            fi
+            image="ghcr.io/${GITHUB_REPOSITORY,,}"
+            old=$(docker buildx imagetools inspect "$image:${newest#v}" --format '{{json .Image}}' \
+              | jq -r '[.. | objects | .config?.Labels?["org.opencontainers.image.base.digest"]? // empty] | first // ""')
+            new=$(docker buildx imagetools inspect "$BASE_IMAGE" --format '{{json .Manifest}}' | jq -r .digest)
+            [[ $new == sha256:* ]] || { echo "::error::could not resolve $BASE_IMAGE"; exit 1; }
+            out old_base_digest "$old"
+            out new_base_digest "$new"
+            if [[ $old == "$new" ]]; then
+              note "$newest is already built on $BASE_IMAGE@$new: nothing to refresh."
+              out skip true
+              exit 0
+            fi
+            node $S next --bump "$BUMP"
+            out base_sha "$(git rev-list -n 1 "$newest")"
+            out refresh_of "$newest"
+          else
+            case $GITHUB_REF in
+              refs/heads/master | refs/heads/release/*) ;;
+              *) echo "::error::Release from master, or from a release/* branch for a hotfix of an older line"; exit 1 ;;
+            esac
+            node $S next --bump "$BUMP" --version "$VERSION" --prerelease "$PRERELEASE" | tee plan.txt
+            tag=$(sed -n 's/^tag=//p' plan.txt)
+            if grep -q '^exists=true' plan.txt; then
+              note "Resuming $tag: the tag exists, building and publishing it."
+              out base_sha "$(git rev-list -n 1 "$tag")"
+            else
+              out base_sha "$GITHUB_SHA"
+            fi
+          fi
+          out skip false
+
+      - name: Summary
+        if: steps.plan.outputs.skip == 'false'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          PREVIOUS: ${{ steps.plan.outputs.previous_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          echo "### ${DRY_RUN/true/Dry run: }$TAG (previous: ${PREVIOUS:-none})" >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    needs: plan
+    if: needs.plan.outputs.skip == 'false' && needs.plan.outputs.exists != 'true' && !inputs.refresh
+    uses: ./.github/workflows/pipeline.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      ref: ${{ needs.plan.outputs.base_sha }}
+      run_tests: true
+      build_images: false
+
+  tag:
+    needs: [plan, test]
+    if: >-
+      !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.skip == 'false'
+      && (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      ref: ${{ steps.tag.outputs.ref }}
+    env:
+      # true: commit the version to package.json and tag that commit (pushed
+      # to the branch together with the tag). false: tag the tested commit as
+      # is; the image still reports the right version (build arg), but
+      # package.json in git keeps its old version. Use false if master gets
+      # branch protection that GITHUB_TOKEN cannot bypass.
+      COMMIT_BUMP: "true"
+      TAG: ${{ needs.plan.outputs.tag }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      EXISTS: ${{ needs.plan.outputs.exists }}
+      BASE_SHA: ${{ needs.plan.outputs.base_sha }}
+      REFRESH: ${{ inputs.refresh }}
+      DRY_RUN: ${{ inputs.dry_run }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.plan.outputs.base_sha }}
+          fetch-depth: 0
+
+      - name: Bump, commit and tag
+        id: tag
+        run: |
+          set -euo pipefail
+          if [[ $EXISTS == true ]]; then
+            echo "ref=refs/tags/$TAG" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # "Re-run failed jobs" after this job had already pushed
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "$TAG was pushed by an earlier attempt; using it"
+            echo "ref=refs/tags/$TAG" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [[ $COMMIT_BUMP == true ]]; then
+            sed -i -E '0,/"version": "[^"]*"/s//"version": "'"$VERSION"'"/' package.json
+            grep -q "\"version\": \"$VERSION\"" package.json
+            git add package.json
+            git commit -m "Release $TAG"
+          fi
+          git tag -a "$TAG" -m "$TAG"
+
+          if [[ $DRY_RUN == true ]]; then
+            git show --stat HEAD | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "ref=$BASE_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ $REFRESH == true || $COMMIT_BUMP != true ]]; then
+            # A refresh release is its own commit on top of the release it
+            # rebuilds, reachable only through its tag
+            git push origin "refs/tags/$TAG"
+          else
+            # Branch and tag together or not at all. Fails if the branch
+            # moved since the tested commit: dispatch the release again.
+            git push --atomic origin "HEAD:refs/heads/$GITHUB_REF_NAME" "refs/tags/$TAG"
+          fi
+          echo "ref=refs/tags/$TAG" >> "$GITHUB_OUTPUT"
+
+  images:
+    needs: [plan, tag]
+    if: ${{ !cancelled() && needs.tag.result == 'success' }}
+    uses: ./.github/workflows/pipeline.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      ref: ${{ needs.tag.outputs.ref }}
+      run_tests: false
+      push: ${{ !inputs.dry_run }}
+      channel: ${{ needs.plan.outputs.prerelease == 'true' && 'prerelease' || 'release' }}
+      version: ${{ needs.plan.outputs.version }}
+      latest: ${{ needs.plan.outputs.latest == 'true' }}
+      line_latest: ${{ needs.plan.outputs.line_latest == 'true' }}
+      fresh: ${{ inputs.refresh }}
+
+  # Last, so a published release always has its images
+  release:
+    needs: [plan, tag, images]
+    if: ${{ !cancelled() && needs.images.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+      LATEST: ${{ needs.plan.outputs.latest }}
+      PREVIOUS: ${{ needs.plan.outputs.previous_tag || needs.plan.outputs.first_base }}
+      TO: ${{ inputs.dry_run && needs.plan.outputs.base_sha || needs.plan.outputs.tag }}
+      REFRESH_OF: ${{ needs.plan.outputs.refresh_of }}
+      OLD_BASE: ${{ needs.plan.outputs.old_base_digest }}
+      NEW_BASE: ${{ needs.plan.outputs.new_base_digest }}
+      DRY_RUN: ${{ inputs.dry_run }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # tags and history for the notes
+          persist-credentials: false
+
+      - name: Release notes
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          if [[ -n $REFRESH_OF ]]; then
+            node scripts/release/notes.mjs --version "$VERSION" --image "$image" \
+              --refresh-of "$REFRESH_OF" --base-image "$BASE_IMAGE@$NEW_BASE" --old-base-digest "$OLD_BASE" > notes.md
+          else
+            node scripts/release/notes.mjs --from "$PREVIOUS" --to "$TO" --version "$VERSION" --image "$image" > notes.md
+          fi
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create or update the GitHub Release
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md --prerelease="$PRERELEASE" --latest="$LATEST"
+          else
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md \
+              --prerelease="$PRERELEASE" --latest="$LATEST"
+          fi

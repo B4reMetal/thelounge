@@ -43,7 +43,7 @@ More options in [docs/DOCKER.md](docs/DOCKER.md).
 
 Back up your data folder first. Your message history is upgraded on first start,
 and other versions of The Lounge can't read it afterwards. A command to convert it
-back is [in progress](https://github.com/fHori/thelounge/pull/11).
+back is [proposed and implemented](https://github.com/fHori/thelounge/pull/11).
 
 ## From source
 

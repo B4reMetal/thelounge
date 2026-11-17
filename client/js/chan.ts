@@ -69,6 +69,44 @@ function appendMessages(channel: ClientChan, incoming: SharedMsg[]): number {
 	return fresh.length;
 }
 
+/**
+ * Leaves out the live mass event summaries whose messages are among the stored
+ * rows they are about to be shown with.
+ *
+ * The messages a summary stands for are written to storage but never sent
+ * live, and the summary itself is only held in memory. Stored rows that reach
+ * the present therefore hold the individual messages of a summary that is
+ * also in the live list. The stored rows win, as they are what any later
+ * reload shows. A summary counts as covered once the newest message it
+ * describes falls within the stored rows; older ones it describes are then
+ * stored too and come with scrolling up.
+ */
+export function withoutCoveredSummaries<T extends SharedMsg>(stored: SharedMsg[], live: T[]): T[] {
+	if (stored.length === 0) {
+		return live;
+	}
+
+	let oldest = Infinity;
+	let newest = -Infinity;
+
+	for (const m of stored) {
+		const time = new Date(m.time).getTime();
+		oldest = Math.min(oldest, time);
+		newest = Math.max(newest, time);
+	}
+
+	return live.filter((m) => {
+		const summary = m.type === MessageType.MASS_EVENT && m.massEventSummary;
+
+		if (!summary) {
+			return true;
+		}
+
+		const end = new Date(summary.endTime).getTime();
+		return !(end >= oldest && end <= newest);
+	});
+}
+
 // How many live messages a history slice holds on to before giving up and
 // leaving them to be read back from storage
 const maxBufferedLive = 500;
@@ -91,18 +129,23 @@ export function showMessagesAround(
 	}
 
 	const loaded = new Set(channel.messages.map(messageKey));
-	const connects = data.messages.some((m) => loaded.has(messageKey(m)));
+	const firstLoaded = data.messages.findIndex((m) => loaded.has(messageKey(m)));
 
-	if (connects && !channel.historySlice) {
-		// The target was older than everything loaded, so whatever is new
-		// here sits directly in front of it
-		prependMessages(channel, data.messages);
+	if (firstLoaded >= 0 && !channel.historySlice) {
+		// The target was older than everything loaded, so what comes before
+		// the loaded messages sits directly in front of them. Stored rows
+		// past that point that aren't loaded are not added among them: they
+		// are rows a live mass event summary already stands for.
+		prependMessages(channel, data.messages.slice(0, firstLoaded));
 	} else if (!data.hasMoreAfter) {
 		// Reaches the newest stored message: this is the present, keep
 		// anything newer that is only in memory
 		const fetched = new Set(data.messages.map(messageKey));
-		const newer = (channel.historySlice?.live || channel.messages).filter(
-			(m) => !fetched.has(messageKey(m))
+		const newer = withoutCoveredSummaries(
+			data.messages,
+			(channel.historySlice?.live || channel.messages).filter(
+				(m) => !fetched.has(messageKey(m))
+			)
 		);
 
 		channel.messages = markMsgsRaw(data.messages).concat(newer);
@@ -145,7 +188,7 @@ export function showMessagesAfter(
 		return;
 	}
 
-	appendMessages(channel, slice.live);
+	appendMessages(channel, withoutCoveredSummaries(channel.messages, slice.live));
 	channel.historySlice = undefined;
 }
 

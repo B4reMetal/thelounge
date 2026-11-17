@@ -75,6 +75,86 @@ class Uploader {
 		return setTimeout(() => uploadTokens.delete(token), 60 * 1000);
 	}
 
+	// Validates and invalidates a one-time upload token, returns whether it was valid
+	static consumeToken(this: void, token: unknown) {
+		if (typeof token !== "string") {
+			return false;
+		}
+
+		const timeout = uploadTokens.get(token);
+
+		if (!timeout) {
+			return false;
+		}
+
+		clearTimeout(timeout);
+		uploadTokens.delete(token);
+
+		return true;
+	}
+
+	// Builds the token string the provider's upload() expects from the submitted
+	// form fields. Throws if the fields are missing or invalid.
+	static getProviderToken(
+		this: void,
+		uploadProvider: UploadProvider,
+		fields: Record<string, string>
+	): string | undefined {
+		const apiKey = fields.apiKey ?? "";
+
+		// The key is handed to the provider joined to the upload address with
+		// this separator, a key containing it would be cut short there
+		if (apiKey.includes("_|_")) {
+			throw new Error("Invalid API Key");
+		}
+
+		if (uploadProvider.requiresURL) {
+			let parsedURL: URL;
+
+			try {
+				parsedURL = new URL(fields.uploadURL ?? "");
+			} catch {
+				throw new Error("Invalid Upload URL");
+			}
+
+			if (parsedURL.protocol !== "http:" && parsedURL.protocol !== "https:") {
+				throw new Error("Invalid Upload URL");
+			}
+
+			// URL.href is always ASCII, so it is safe to base64 encode
+			return `${Buffer.from(parsedURL.href).toString("base64")}_|_${apiKey}`;
+		}
+
+		if (uploadProvider.requiresToken && !apiKey) {
+			throw new Error("Missing API Key");
+		}
+
+		return apiKey || undefined;
+	}
+
+	// Error messages from providers may contain (parts of) the upstream response
+	// body. Never reflect those for user supplied upload URLs, and keep them short
+	// for the fixed public providers.
+	static sanitizeProviderError(this: void, uploadProvider: UploadProvider, message: string) {
+		const knownMessages = ["Invalid Upload URL", "Invalid Upload Token", "Unknown Error"];
+
+		if (knownMessages.includes(message)) {
+			return message;
+		}
+
+		if (uploadProvider.requiresURL) {
+			return `Upload to ${uploadProvider.displayName} failed`;
+		}
+
+		const firstLine = message.split(/\r?\n/, 1)[0].trim();
+
+		if (!firstLine) {
+			return `Upload to ${uploadProvider.displayName} failed`;
+		}
+
+		return firstLine.length > 100 ? `${firstLine.slice(0, 100)}...` : firstLine;
+	}
+
 	static router(this: void, express: Application) {
 		express.get("/uploads/:name{/:slug}", Uploader.routeGetFile);
 		express.post("/uploads/:service/:token{/:ttl}", Uploader.routeUploadFile);
@@ -143,9 +223,14 @@ class Uploader {
 		let destPath: fs.PathLike | null;
 		let streamWriter: fs.WriteStream | null;
 
-		const uploadProvider = UploadProviders.find(b => b.id === req.params.service);
-		const token = <string>req.params.token;
+		const uploadProvider = UploadProviders.find((b) => b.id === req.params.service);
 		const ttl = <string>req.params.ttl ?? "";
+
+		// Credentials for external providers are sent as multipart fields that
+		// precede the file, so they never show up in the request URL (and thus in
+		// access logs of reverse proxies)
+		const fields: Record<string, string> = {};
+		let providerToken: string | undefined;
 
 		const doneCallback = () => {
 			// detach the stream and drain any remaining data
@@ -164,7 +249,7 @@ class Uploader {
 			}
 		};
 
-		const abortWithError = (err: unknown) => {
+		const abortWithError = (err: unknown, status = 400) => {
 			doneCallback();
 
 			// if we ended up erroring out, delete the output file from disk
@@ -173,22 +258,37 @@ class Uploader {
 				destPath = null;
 			}
 
-			return res.status(400).json({error: err instanceof Error ? err.message : String(err)});
+			if (res.headersSent) {
+				return;
+			}
+
+			return res
+				.status(status)
+				.json({error: err instanceof Error ? err.message : String(err)});
 		};
 
 		if (!uploadProvider) {
 			return abortWithError(Error("Invalid upload provider"));
 		}
 
-		if (uploadProvider.requiresToken && token === `_${uploadProvider.id}_`) {
-			return abortWithError(Error("Missing API Key"));
+		// Every upload, regardless of the provider, must present a valid one-time
+		// token that was issued over an authenticated socket connection
+		if (!Uploader.consumeToken(req.params.token)) {
+			return abortWithError(Error("Invalid upload token"), 403);
 		}
 
-		if (uploadProvider.id === "new") {
-			// if the authentication token is incorrect, bail out
-			if (uploadTokens.delete(req.params.token) !== true) {
-				return abortWithError(Error("Invalid upload token"));
-			}
+		if (uploadProvider.id !== "new" && !Config.values.allowFileUploadBackendSelection) {
+			return abortWithError(Error("Upload provider selection is disabled"), 403);
+		}
+
+		// In public mode anyone who opens the page gets an upload token, so a
+		// provider that posts to an address of the visitor's choosing would let
+		// anonymous visitors make this server send requests anywhere
+		if (uploadProvider.requiresURL && Config.values.public) {
+			return abortWithError(
+				Error("This upload provider is not available in public mode"),
+				403
+			);
 		}
 
 		// if the request does not contain any body data, bail out
@@ -213,6 +313,8 @@ class Uploader {
 				headers: req.headers as BusboyHeaders,
 				limits: {
 					files: 1, // only allow one file per upload
+					fields: 2, // apiKey and uploadURL for external providers
+					fieldSize: 4096,
 					fileSize: Uploader.getMaxFileSize(),
 				},
 			});
@@ -253,8 +355,40 @@ class Uploader {
 		streamWriter.on("error", abortWithError);
 
 		busboyInstance.on(
+			"field",
+			(
+				fieldname: string,
+				value: string,
+				_nameTruncated: boolean,
+				valueTruncated: boolean
+			) => {
+				if (fieldname !== "apiKey" && fieldname !== "uploadURL") {
+					return;
+				}
+
+				// A value cut off at the size limit must not be used as if it were whole
+				if (valueTruncated) {
+					return abortWithError(Error("Field too long"));
+				}
+
+				fields[fieldname] = value;
+			}
+		);
+
+		busboyInstance.on(
 			"file",
 			(fieldname: string, fileStream: NodeJS.ReadableStream, filename: string) => {
+				// Provider credentials must be sent before the file, validate them
+				// before accepting any file data
+				if (uploadProvider.id !== "new") {
+					try {
+						providerToken = Uploader.getProviderToken(uploadProvider, fields);
+					} catch (err) {
+						fileStream.resume();
+						return abortWithError(err);
+					}
+				}
+
 				uploadUrl = `${randomName}/${encodeURIComponent(filename)}`;
 				originalFilename = filename;
 
@@ -282,11 +416,12 @@ class Uploader {
 		if (uploadProvider.id === "new") {
 			// local upload
 			busboyInstance.on("finish", () => {
-				doneCallback();
-
 				if (!uploadUrl) {
-					return res.status(400).json({error: "Missing file"});
+					// also removes the empty file opened for the upload
+					return abortWithError(Error("Missing file"));
 				}
+
+				doneCallback();
 
 				Uploader.writeExpiry(<string>destPath, uploadProvider, ttl);
 
@@ -298,38 +433,54 @@ class Uploader {
 		} else {
 			// service upload
 			busboyInstance.on("finish", () => {
+				if (!originalFilename) {
+					return abortWithError(Error("Missing file"));
+				}
+
 				const upload = () => {
-					const file = new File([new Blob([fs.readFileSync(<string>destPath)])], originalFilename, {
-						type: mime.getType(originalFilename) ?? undefined,
-					});
-
-					uploadProvider.upload(file, ttl, token)
-					.then((url) => {
-						fs.unlink(<string>destPath, () => undefined);
-
-						uploadUrl = url;
-
-						// Allow host masking to allow vanity url for external hosted images
-						// eslint-disable-next-line eqeqeq
-						if (Config.values.maskFileHost && Config.values.fileUpload.baseUrl != null) {
-							const oldHost = new URL(url).host;
-							const newHost = new URL(Config.values.fileUpload.baseUrl).host;
-
-							uploadUrl = url.replace(oldHost, newHost);
+					const file = new File(
+						[new Blob([fs.readFileSync(<string>destPath)])],
+						originalFilename,
+						{
+							type: mime.getType(originalFilename) ?? undefined,
 						}
+					);
 
-						if (!uploadUrl) {
-							return res.status(400).json({error: "Missing file"});
-						}
+					uploadProvider
+						.upload(file, ttl, providerToken)
+						.then((url) => {
+							fs.unlink(<string>destPath, () => undefined);
 
-						// upload was done, send the generated file url to the client
-						return res.status(200).json({
-							url: uploadUrl,
+							uploadUrl = url;
+
+							// Allow host masking to allow vanity url for external hosted images
+							if (
+								Config.values.maskFileHost &&
+								// eslint-disable-next-line eqeqeq
+								Config.values.fileUpload.baseUrl != null
+							) {
+								const oldHost = new URL(url).host;
+								const newHost = new URL(Config.values.fileUpload.baseUrl).host;
+
+								uploadUrl = url.replace(oldHost, newHost);
+							}
+
+							if (!uploadUrl) {
+								return res.status(400).json({error: "Missing file"});
+							}
+
+							// upload was done, send the generated file url to the client
+							return res.status(200).json({
+								url: uploadUrl,
+							});
+						})
+						.catch((err: unknown) => {
+							const message = err instanceof Error ? err.message : String(err);
+							log.debug(`Upload to ${uploadProvider.id} failed: ${message}`);
+							abortWithError(
+								Error(Uploader.sanitizeProviderError(uploadProvider, message))
+							);
 						});
-					})
-					.catch((err) => {
-						abortWithError(err);
-					});
 				};
 
 				if (!streamWriter || streamWriter.closed === true) {

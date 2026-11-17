@@ -5,11 +5,10 @@ ARG NODE_VERSION=22
 # records that digest in the image labels; the weekly refresh compares it.
 ARG BASE_IMAGE=node:${NODE_VERSION}-bookworm-slim
 
-# Shared base: corepack provides the yarn version pinned in package.json, git
-# is needed because irc-framework is a git dependency.
+# Shared base: corepack provides the yarn version pinned in package.json
 FROM ${BASE_IMAGE} AS base
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends git ca-certificates \
+	&& apt-get install -y --no-install-recommends ca-certificates \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& corepack enable
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
@@ -19,6 +18,7 @@ WORKDIR /app
 # output is plain JS and CSS, so it is the same for every target platform.
 FROM --platform=$BUILDPLATFORM base AS build
 COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn/patches ./.yarn/patches
 RUN yarn install --immutable
 COPY . .
 # Release builds pass the version: it replaces the one in package.json, which
@@ -36,6 +36,7 @@ RUN if [ -n "$VERSION" ]; then \
 # Runtime dependencies for the target platform (better-sqlite3 is native).
 FROM base AS deps
 COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn/patches ./.yarn/patches
 RUN yarn workspaces focus --all --production \
 	&& yarn cache clean --all
 

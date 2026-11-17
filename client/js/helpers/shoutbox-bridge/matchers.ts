@@ -8,7 +8,7 @@ export const matchers: Matcher[] = [
 	{
 		type: "basic",
 		name: "Aither",
-		disabled: true, // no known IRC host to limit it to
+		tracker: "ATH",
 		description: "[nick] message",
 		matches: [ "chatbot" ],
 		regex: /^\[(?<nick>[^:\]]+)\] (?<content>.*)/,

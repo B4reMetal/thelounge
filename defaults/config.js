@@ -440,6 +440,11 @@ export default {
 			channels: ["#Announce", "#ULCX", "#Support"],
 			profileUrl: "https://upload.cx/users/{nick}",
 		},
+		ATH: {
+			name: "Aither",
+			network: "irc.aither.cc",
+			profileUrl: "https://aither.cc/users/{nick}",
+		},
 		RFX: {
 			name: "Reelflix",
 			network: "irc.reelflix.cc",

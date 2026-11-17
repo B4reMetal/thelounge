@@ -89,9 +89,20 @@ describe("shoutbox bridge parser", function () {
 		expect(unscoped.from?.tracker).to.equal(undefined);
 	});
 
+	it("rewrites Aither's bridge bot on Aither's network only", function () {
+		const aither = {trackers: [site("ATH")]};
+		const message = msg("chatbot", "[admin] hello");
+
+		expect(parser(message, aither, channel("#General")).from).to.include({
+			nick: "admin",
+			tracker: "ATH",
+		});
+		expect(parser(message, otherNetwork, channel("#General"))).to.equal(message);
+	});
+
 	it("leaves disabled matchers out, on every network", function () {
 		for (const [nick, text] of [
-			["chatbot", "[admin] hello"],
+			["dreadvaultbot", "[admin] hello"],
 			["admin-web", "hello"],
 		]) {
 			const message = msg(nick, text);
@@ -101,7 +112,6 @@ describe("shoutbox bridge parser", function () {
 		}
 
 		expect(matchers.filter((m) => m.disabled).map((m) => m.name)).to.deep.equal([
-			"Aither",
 			"DreadVault",
 			"HUNO (Web)",
 		]);

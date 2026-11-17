@@ -10854,7 +10854,7 @@ __metadata:
     tlds: "npm:1.261.0"
     tsx: "npm:^4.20.6"
     typescript: "npm:5.9.3"
-    ua-parser-js: "npm:2.0.6"
+    ua-parser-js: "npm:2.0.10"
     undate: "npm:0.3.0"
     undici: "npm:7.30.2"
     uuid: "npm:13.0.0"
@@ -11125,16 +11125,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ua-parser-js@npm:2.0.6":
-  version: 2.0.6
-  resolution: "ua-parser-js@npm:2.0.6"
+"ua-parser-js@npm:2.0.10":
+  version: 2.0.10
+  resolution: "ua-parser-js@npm:2.0.10"
   dependencies:
     detect-europe-js: "npm:^0.1.2"
     is-standalone-pwa: "npm:^0.1.1"
     ua-is-frozen: "npm:^0.1.2"
   bin:
     ua-parser-js: script/cli.js
-  checksum: 10c0/b57b3bd81a3d6b5f76df9c91090bcd5b778a2479dfc0eb4720eced724a55395691a4816a0cc899e0bf60fa2ab6472d045622e368b2cb697cdb431930e12a9c92
+  checksum: 10c0/77d4dbc6047a2f06ee96bfa6bf496d4325a7076d6e97cfdd1f6b09477cbc5b82fd81b035c103b1b5a8711f09dd7f5acd4940eecefbe942546cc2f5a0ee7345c5
   languageName: node
   linkType: hard
 

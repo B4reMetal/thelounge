@@ -23,7 +23,7 @@
 				<template v-if="store.state.serverConfiguration?.gitCommit">
 					<p>
 						The Lounge is running from source (<a
-							:href="`https://github.com/thelounge/thelounge/tree/${store.state.serverConfiguration?.gitCommit}`"
+							:href="`https://github.com/fHori/thelounge/tree/${store.state.serverConfiguration?.gitCommit}`"
 							target="_blank"
 							rel="noopener"
 							>commit <code>{{ store.state.serverConfiguration?.gitCommit }}</code></a
@@ -34,7 +34,7 @@
 						<li>
 							Compare
 							<a
-								:href="`https://github.com/thelounge/thelounge/compare/${store.state.serverConfiguration?.gitCommit}...master`"
+								:href="`https://github.com/fHori/thelounge/compare/${store.state.serverConfiguration?.gitCommit}...master`"
 								target="_blank"
 								rel="noopener"
 								>between
@@ -46,7 +46,7 @@
 						<li>
 							Compare
 							<a
-								:href="`https://github.com/thelounge/thelounge/compare/${store.state.serverConfiguration?.version}...${store.state.serverConfiguration?.gitCommit}`"
+								:href="`https://github.com/fHori/thelounge/compare/${store.state.serverConfiguration?.version}...${store.state.serverConfiguration?.gitCommit}`"
 								target="_blank"
 								rel="noopener"
 								>between
@@ -60,7 +60,7 @@
 
 				<p>
 					<a
-						href="https://thelounge.chat/"
+						href="https://github.com/fHori/thelounge"
 						target="_blank"
 						rel="noopener"
 						class="website-link"
@@ -78,7 +78,7 @@
 				</p>
 				<p>
 					<a
-						href="https://github.com/thelounge/thelounge/issues/new"
+						href="https://github.com/fHori/thelounge/issues/new/choose"
 						target="_blank"
 						rel="noopener"
 						class="report-issue-link"

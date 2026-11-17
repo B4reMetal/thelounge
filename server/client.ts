@@ -114,6 +114,9 @@ class Client {
 	massEventAggregator!: MassEventAggregator;
 
 	fileHash!: string;
+	// Whether settings saved under an old name were moved to the new one on
+	// load, so the user file still has to be written with the new names
+	private settingsRenamed = false;
 
 	constructor(manager: ClientManager, name?: string, config = {} as UserConfig) {
 		this.id = uuidv4();
@@ -182,9 +185,7 @@ class Client {
 			this.config.clientSettings = {};
 		}
 
-		if (migrateRenamedSettings(this.config.clientSettings)) {
-			this.save();
-		}
+		this.settingsRenamed = migrateRenamedSettings(this.config.clientSettings);
 
 		if (!_.isPlainObject(this.config.browser)) {
 			this.config.browser = {};
@@ -234,6 +235,15 @@ class Client {
 			});
 
 			this.fileHash = this.manager.getDataToSave(this).newHash;
+
+			// The hash above already sees the renamed settings, so it doesn't
+			// match the file on disk, which still has the old names. Without
+			// this, saving would find nothing changed and skip the write.
+			if (this.settingsRenamed) {
+				this.settingsRenamed = false;
+				this.fileHash = "";
+				this.save();
+			}
 		}
 	}
 

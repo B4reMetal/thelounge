@@ -6,6 +6,7 @@ import Client from "../server/client.js";
 import log from "../server/log.js";
 import Config from "../server/config.js";
 
+import fs from "fs";
 import sinon from "sinon";
 
 describe("Client", function () {
@@ -120,9 +121,10 @@ describe("Client", function () {
 			Config.values.public = wasPublic;
 		});
 
-		it("should move settings saved under their old names and save the user", function () {
+		it("should move settings saved under their old names and write the user file", function () {
 			const manager = new ClientManager();
-			const saveUser = sinon.stub(manager, "saveUser");
+			const writeFile = sinon.stub(fs, "writeFileSync");
+			const rename = sinon.stub(fs, "renameSync");
 			const client = new Client(manager, "test", {
 				log: false,
 				password: "foo",
@@ -138,8 +140,25 @@ describe("Client", function () {
 				searchEnabled: false,
 			});
 
+			// What happens when the user is loaded at startup: the networks are
+			// set up and the hash of the loaded data is taken
+			client.connect();
 			client.save.flush();
-			sinon.assert.calledOnceWithExactly(saveUser, client);
+
+			try {
+				sinon.assert.calledOnce(writeFile);
+				sinon.assert.calledOnce(rename);
+				const written = JSON.parse(writeFile.firstCall.args[1] as string);
+				expect(written.clientSettings).to.include({
+					jumpToEnabled: false,
+					filterDmsEnabled: false,
+				});
+				expect(written.clientSettings).to.not.have.property("jumptoEabled");
+				expect(written.clientSettings).to.not.have.property("filterdmsEnabled");
+			} finally {
+				writeFile.restore();
+				rename.restore();
+			}
 		});
 
 		it("should not save the user when no setting was renamed", function () {
@@ -153,6 +172,7 @@ describe("Client", function () {
 				networks: [],
 			});
 
+			client.connect();
 			client.save.flush();
 			sinon.assert.notCalled(saveUser);
 		});

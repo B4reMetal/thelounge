@@ -264,7 +264,9 @@ jobs:
       version: ${{ needs.plan.outputs.version }}
       latest: ${{ needs.plan.outputs.latest == 'true' }}
       line_latest: ${{ needs.plan.outputs.line_latest == 'true' }}
-      fresh: ${{ inputs.refresh }}
+      # `refresh` only exists when called from refresh.yml; when the workflow
+      # is started by hand it is empty, which a boolean input refuses
+      fresh: ${{ inputs.refresh == true }}
 
   # Last, so a published release always has its images
   release:

@@ -119,6 +119,9 @@ function createBaseConfig(mode, isProduction) {
 		},
 		resolve: {
 			extensions: [".ts", ".js", ".vue"],
+			// Tests import TypeScript and Vue files with the ".js" suffix that
+			// Node ESM needs, as the server does
+			extensionAlias: {".js": [".ts", ".js"]},
 		},
 		module: {
 			rules: [
@@ -131,6 +134,9 @@ function createBaseConfig(mode, isProduction) {
 								preserveWhitespace: false,
 							},
 							appendTsSuffixTo: [/\.vue$/],
+							// The test bundle targets Node; without this vue-loader
+							// would compile components for server-side rendering only
+							isServerBuild: false,
 						},
 					},
 				},
@@ -244,7 +250,7 @@ function applyDevelopmentOverrides(config) {
 	};
 	devConfig.entry = {
 		...(devConfig.entry ?? {}),
-		"testclient.js": [resolveFromRoot("test/client/index.ts")],
+		"testclient.cjs": [resolveFromRoot("test/client/index.ts")],
 	};
 	devConfig.optimization = {
 		...(devConfig.optimization ?? {}),
@@ -256,7 +262,7 @@ function applyDevelopmentOverrides(config) {
 		createMiniCssExtractPlugin(),
 		new CopyPlugin({patterns: copyPatterns(false)}),
 		new NormalModuleReplacementPlugin(
-			/js(\/|\\)socket\.js/,
+			/js(\/|\\)socket\.[jt]s$/,
 			resolveFromRoot("scripts/noop.js")
 		),
 	];

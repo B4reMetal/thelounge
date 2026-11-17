@@ -201,9 +201,10 @@ export default async function (
 	let sockets: Server | null = null;
 	let identd: Identification | null = null;
 
-	return new Promise<ServerInstance>((resolve) => {
+	return new Promise<ServerInstance>((resolve, reject) => {
 		server.listen(listenParams, () => {
-			void (async () => {
+			// Fail start-up instead of hanging when anything below throws
+			(async () => {
 				if (typeof listenParams === "string") {
 					log.info("Available on socket " + colors.green(listenParams));
 				} else {
@@ -372,7 +373,7 @@ export default async function (
 					io: sockets,
 					stop,
 				});
-			})();
+			})().catch(reject);
 		});
 	});
 }

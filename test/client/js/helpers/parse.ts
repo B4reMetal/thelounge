@@ -1,18 +1,63 @@
-import {expect} from "chai";
+import {expect as chaiExpect} from "chai";
 
 import {mount} from "@vue/test-utils";
-import ParsedMessage from "../../../../client/components/ParsedMessage.vue.js";
+import ParsedMessage from "../../../../client/components/ParsedMessage.vue";
 import type {ClientMessage} from "../../../../client/js/types.js";
+import {store, key} from "../../../../client/js/store.js";
 
-function getParsedMessageContents(text: string, message?: ClientMessage | string) {
+function getParsedMessageContents(text: string, message?: Partial<ClientMessage> | string) {
 	const wrapper = mount(ParsedMessage, {
 		props: {
 			text,
 			message,
 		},
+		// Nicks render through Username, which reads settings from the store
+		global: {plugins: [[store, key]]},
 	});
 
-	return wrapper.html();
+	return wrapper.html({raw: true});
+}
+
+// Serialise HTML the way the DOM does, with attributes in a fixed order, so
+// the expected strings don't depend on attribute order or how the DOM spells
+// inline styles
+function normalize(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(normalize);
+	}
+
+	if (typeof value !== "string") {
+		return value;
+	}
+
+	const root = document.createElement("div");
+	root.innerHTML = value;
+
+	for (const el of Array.from(root.querySelectorAll<HTMLElement>("[style]"))) {
+		el.style.cssText = el.getAttribute("style") ?? "";
+	}
+
+	for (const el of Array.from(root.querySelectorAll("*"))) {
+		const attrs = Array.from(el.attributes)
+			.map((attr) => [attr.name, attr.value])
+			.sort(([a], [b]) => (a < b ? -1 : 1));
+
+		for (const [name] of attrs) {
+			el.removeAttribute(name);
+		}
+
+		for (const [name, attrValue] of attrs) {
+			el.setAttribute(name, attrValue);
+		}
+	}
+
+	return root.innerHTML;
+}
+
+function expect(actual: unknown) {
+	const check = (expected: unknown) =>
+		chaiExpect(normalize(actual)).to.deep.equal(normalize(expected));
+	return {to: {equal: check, deep: {equal: check}}};
 }
 
 describe("IRC formatted message parser", () => {

@@ -1,8 +1,6 @@
 import {expect} from "chai";
 import semver from "semver";
-// @ts-expect-error plain ESM script without type declarations
 import * as V from "../../scripts/release/version.mjs";
-// @ts-expect-error plain ESM script without type declarations
 import * as N from "../../scripts/release/notes.mjs";
 
 const at = (d: string) => new Date(`${d}T12:00:00Z`);

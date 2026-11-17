@@ -62,7 +62,7 @@ describe("LDAP authentication plugin", function () {
 		// Mock ClientManager with only the method used by LDAP auth
 		manager = {
 			addUser: sandbox.stub(),
-		} as ClientManager;
+		} as unknown as ClientManager;
 	});
 
 	afterEach(function () {

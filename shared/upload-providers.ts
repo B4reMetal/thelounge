@@ -4,16 +4,16 @@ export interface UploadProvider {
 	requiresURL?: boolean;
 	requiresToken: boolean;
 	validTtl?: UploadTTL[];
-	supportNote?:string;
+	supportNote?: string;
 	upload: (file: File, ttl: string, token?: string) => Promise<string>;
-};
+}
 
 interface UploadTTL {
 	id: string;
 	displayName: string;
 	value: string;
 	default?: boolean;
-};
+}
 
 export const UploadProviders: UploadProvider[] = [
 	{
@@ -58,7 +58,9 @@ export const UploadProviders: UploadProvider[] = [
 				value: "custom",
 			},
 		],
-		upload () { return Promise.resolve("dummy") },
+		upload() {
+			return Promise.resolve("dummy");
+		},
 	},
 	{
 		id: "imagebb",
@@ -85,11 +87,11 @@ export const UploadProviders: UploadProvider[] = [
 				id: "forever",
 				displayName: "Keep Forever",
 				value: "-",
-			}
+			},
 		],
 		supportNote: "Supported files: Images",
 		async upload(file: File, ttl: string, token?: string) {
-			const uploadTTL = this.validTtl?.find(t => t.id === ttl);
+			const uploadTTL = this.validTtl?.find((t) => t.id === ttl);
 
 			const payload = new FormData();
 			payload.append("key", token!);
@@ -139,11 +141,11 @@ export const UploadProviders: UploadProvider[] = [
 				id: "forever",
 				displayName: "Keep Forever",
 				value: "-",
-			}
+			},
 		],
 		supportNote: "Supported files: Images, Videos, Audio, and Text",
 		async upload(file: File, ttl: string) {
-			const uploadTTL = this.validTtl?.find(t => t.id === ttl);
+			const uploadTTL = this.validTtl?.find((t) => t.id === ttl);
 
 			const payload = new FormData();
 			payload.append("reqtype", "fileupload");
@@ -195,11 +197,11 @@ export const UploadProviders: UploadProvider[] = [
 				id: "forever",
 				displayName: "Keep Forever",
 				value: "-",
-			}
+			},
 		],
 		supportNote: "Supported files: Images",
 		async upload(file: File, ttl: string, token?: string) {
-			const uploadTTL = this.validTtl?.find(t => t.id === ttl);
+			const uploadTTL = this.validTtl?.find((t) => t.id === ttl);
 
 			const payload = new FormData();
 			payload.append("format", "txt");
@@ -249,11 +251,11 @@ export const UploadProviders: UploadProvider[] = [
 				id: "forever",
 				displayName: "Keep Forever",
 				value: "-1",
-			}
+			},
 		],
 		supportNote: "Supported files: Images, Video, and Text",
 		async upload(file: File, ttl: string) {
-			const uploadTTL = this.validTtl?.find(t => t.id === ttl);
+			const uploadTTL = this.validTtl?.find((t) => t.id === ttl);
 
 			const payload = new FormData();
 			payload.append("files[]", file);
@@ -271,7 +273,7 @@ export const UploadProviders: UploadProvider[] = [
 			}
 
 			// json?.files?.[0]?.url is not the url to the raw image
-			const fName = <string>json?.files?.[0]?.file_name
+			const fName = <string>json?.files?.[0]?.file_name;
 
 			// eslint-disable-next-line eqeqeq
 			if (fName == null) {
@@ -343,11 +345,11 @@ export const UploadProviders: UploadProvider[] = [
 				id: "forever",
 				displayName: "Keep Forever",
 				value: "-",
-			}
+			},
 		],
 		supportNote: "Supported files: Images",
 		async upload(file: File, ttl: string, token?: string) {
-			const uploadTTL = this.validTtl?.find(t => t.id === ttl);
+			const uploadTTL = this.validTtl?.find((t) => t.id === ttl);
 
 			const payload = new FormData();
 			payload.append("format", "txt");
@@ -382,7 +384,7 @@ export const UploadProviders: UploadProvider[] = [
 				displayName: "Keep Forever",
 				value: "-",
 				default: true,
-			}
+			},
 		],
 		supportNote: "Supported files: Images",
 		async upload(file: File, ttl: string, token?: string) {
@@ -413,16 +415,17 @@ export const UploadProviders: UploadProvider[] = [
 		displayName: "XBackBone",
 		requiresURL: true,
 		requiresToken: true,
-		supportNote: "Supported files: Images, Videos, Audio, and Text\nNOTE: You must have 'Hide Media by Default' disabled for your profile",
+		supportNote:
+			"Supported files: Images, Videos, Audio, and Text\nNOTE: You must have 'Hide Media by Default' disabled for your profile",
 		async upload(file: File, ttl: string, url_token?: string) {
 			const [encodedRequestURL, auth] = url_token!.split("_|_");
-			const requestURL = atob(encodedRequestURL)
+			const requestURL = atob(encodedRequestURL);
 
 			if (!requestURL.startsWith("http")) {
 				throw new Error("Invalid Upload URL");
 			}
 
-			if (!auth || (auth.startsWith('_') && auth.endsWith('_'))) {
+			if (!auth || (auth.startsWith("_") && auth.endsWith("_"))) {
 				throw new Error("Invalid Upload Token");
 			}
 
@@ -459,13 +462,13 @@ export const UploadProviders: UploadProvider[] = [
 		supportNote: "Supported files: Images, Videos, Audio, and Text",
 		async upload(file: File, ttl: string, url_token?: string) {
 			const [encodedRequestURL, auth] = url_token!.split("_|_");
-			const requestURL = atob(encodedRequestURL)
+			const requestURL = atob(encodedRequestURL);
 
 			if (!requestURL.startsWith("http")) {
 				throw new Error("Invalid Upload URL");
 			}
 
-			if (!auth || (auth.startsWith('_') && auth.endsWith('_'))) {
+			if (!auth || (auth.startsWith("_") && auth.endsWith("_"))) {
 				throw new Error("Invalid Upload Token");
 			}
 
@@ -491,10 +494,9 @@ export const UploadProviders: UploadProvider[] = [
 			// ({id, name, type, url}); older ones return plain URL strings.
 			const entry = json.files?.[0];
 
-			const url =
-				typeof entry === "string" ? entry : (entry?.url ?? "");
+			const url: unknown = typeof entry === "string" ? entry : entry?.url;
 
-			if (!url.startsWith("http")) {
+			if (typeof url !== "string" || !url.startsWith("http")) {
 				throw new Error("Unknown Error");
 			}
 

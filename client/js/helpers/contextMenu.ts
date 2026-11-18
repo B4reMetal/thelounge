@@ -351,16 +351,19 @@ export function generateUserContextMenu(
 			label: user.nick,
 			type: "item",
 			class: "user",
-			action () {},
+			action() {},
 		};
 
-		if (store.state.settings.enhancedContextMenuEnabled && Boolean(network.channels.find(c => (c.groups?.length ?? 0) > 0))) {
+		if (
+			store.state.settings.enhancedContextMenuEnabled &&
+			Boolean(network.channels.find((c) => (c.groups?.length ?? 0) > 0))
+		) {
 			const customInspect = {
 				label: user.nick,
 				type: "item",
 				class: "user",
-				action (){
-					if (channel.type !== ChanType.CHANNEL) return
+				action() {
+					if (channel.type !== ChanType.CHANNEL) return;
 
 					socket.emit("input", {
 						target: channel.id,
@@ -368,14 +371,17 @@ export function generateUserContextMenu(
 					});
 				},
 			};
-			const userGroup = network.channels.find(c => c.users.find(u => u.nick === user.nick))?.groups?.find(g => g.users.includes(user.nick))?.name ?? 'Offline';
+			const userGroup =
+				network.channels
+					.find((c) => c.users.find((u) => u.nick === user.nick))
+					?.groups?.find((g) => g.users.includes(user.nick))?.name ?? "Offline";
 
 			return [
 				{
 					label: userGroup,
 					type: "item",
 					class: `group-${groupSlug(userGroup)}`,
-					action () {},
+					action() {},
 				},
 				{
 					type: "divider",
@@ -386,7 +392,7 @@ export function generateUserContextMenu(
 		}
 
 		return [defualt, ...trackerProfileEntry()] as ContextMenuItem[];
-	}
+	};
 
 	// Extra entries for enhanced context menu
 	const additionalContextMenuEntrys = () => {
@@ -437,7 +443,7 @@ export function generateUserContextMenu(
 			label: "User information",
 			type: "item",
 			class: "action-whois",
-			action ()  {
+			action() {
 				const chan = network.channels.find((c) => c.name === user.nick);
 
 				if (chan) {

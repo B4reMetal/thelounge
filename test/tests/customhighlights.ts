@@ -1,10 +1,9 @@
 import {expect} from "chai";
 import log from "../../server/log.js";
-import Client from "../../server/client.js";
+import Client, {type UserConfig} from "../../server/client.js";
 import ClientManager from "../../server/clientManager.js";
 import TestUtil from "../util.js";
 import sinon from "sinon";
-import {UserConfig} from "../../shared/types/config.js";
 
 describe("Custom highlights", function () {
 	let userLoadedLog = "";
@@ -20,14 +19,14 @@ describe("Custom highlights", function () {
 					newHash: "",
 				};
 			},
-		} as ClientManager,
+		} as unknown as ClientManager,
 		"test",
 		{
 			clientSettings: {
 				highlights: "foo, @all,   sp ace   , 고",
 				highlightExceptions: "foo bar, bar @all, test sp ace test",
 			},
-		} as UserConfig
+		} as unknown as UserConfig
 	);
 	client.connect();
 	logInfoStub.restore();

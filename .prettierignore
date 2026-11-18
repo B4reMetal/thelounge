@@ -26,6 +26,9 @@ yarn.lock
 .eslintignore
 .gitattributes
 .browserslistrc
+.dockerignore
+*.woff
+*.woff2
 
 *.css
 

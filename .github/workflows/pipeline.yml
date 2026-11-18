@@ -83,12 +83,16 @@ jobs:
       - name: Install
         run: yarn install --immutable
 
+      # ESLint, Prettier, Stylelint and the TypeScript type check
+      - name: Lint
+        run: yarn lint
+
       - name: Build
         run: yarn build
         env:
           NODE_ENV: production
 
-      - name: Test
+      - name: Test (server and client)
         run: yarn test:mocha
 
       # The tests run through a TypeScript loader that papers over ESM import

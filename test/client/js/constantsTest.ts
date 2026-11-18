@@ -1,6 +1,5 @@
 import {expect, assert} from "chai";
 import constants from "../../../client/js/constants";
-import {describe} from "mocha";
 
 describe("client-side constants", function () {
 	describe(".colorCodeMap", function () {

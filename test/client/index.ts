@@ -1,6 +1,6 @@
 // Recursively load all JS files (test files) in the `js` folder
 // Webpack's require.context is not in standard Node.js types
-interface WebpackRequire extends NodeRequire {
+interface WebpackRequire {
 	context(
 		directory: string,
 		useSubdirectories: boolean,
@@ -11,7 +11,7 @@ interface WebpackRequire extends NodeRequire {
 	};
 }
 
-const context = (require as WebpackRequire).context("./js", true, /.+\.js$/);
+const context = (require as unknown as WebpackRequire).context("./js", true, /.+\.ts$/);
 context.keys().forEach(context);
 
 export default context;

@@ -10,6 +10,8 @@ reporter: dot
 exit: true
 ignore:
   - "test/client/**"
+  # Passes on its own, but in the full run web push reads its keys from the
+  # wrong home directory (two copies of the server modules get loaded)
   - "test/server.ts"
   - "test/util.ts"
 spec: ["test/**/*.ts"]

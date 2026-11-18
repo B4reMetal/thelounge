@@ -135,11 +135,22 @@ export function forkVersions(tags) {
 		.sort(compare);
 }
 
-const isStable = (v) => parse(v).pre.length === 0;
-const line = (v) => `${parse(v).major}.${parse(v).minor}`;
+// parse() for versions already known to be valid
+const must = (v) => {
+	const p = parse(v);
+
+	if (!p) {
+		throw new Error(`not a version: ${v}`);
+	}
+
+	return p;
+};
+
+const isStable = (v) => must(v).pre.length === 0;
+const line = (v) => `${must(v).major}.${must(v).minor}`;
 
 const core = (v) => {
-	const p = parse(v);
+	const p = must(v);
 	return `${p.major}.${p.minor}.${p.patch}`;
 };
 
@@ -201,7 +212,7 @@ export function nextVersion({
 	if (prerelease) {
 		const rcs = all
 			.filter((v) => core(v) === target && !isStable(v))
-			.map((v) => Number(parse(v).pre[1]));
+			.map((v) => Number(must(v).pre[1]));
 		version = `${target}-${SCHEME.preId}.${rcs.length ? Math.max(...rcs) + 1 : 1}`;
 	} else {
 		version = target;
@@ -369,7 +380,6 @@ async function main(argv) {
 				tags: all,
 				bump,
 				features,
-				bump: a.bump || "auto",
 				explicit: a.version || "",
 				prerelease: bool(a.prerelease),
 				now,

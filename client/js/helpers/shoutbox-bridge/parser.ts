@@ -1,17 +1,17 @@
-import type { SharedMsg } from "../../../../shared/types/msg";
-import { ChanType } from "../../../../shared/types/chan";
-import type { ClientChan, ClientNetwork } from "../../types";
-import { toRaw } from "vue";
-import { findTracker } from "../trackerProfile";
-import { matchers } from "./matchers";
-import { type Matcher } from "./types/matcher";
+import type {SharedMsg} from "../../../../shared/types/msg";
+import {ChanType} from "../../../../shared/types/chan";
+import type {ClientChan, ClientNetwork} from "../../types";
+import {toRaw} from "vue";
+import {findTracker} from "../trackerProfile";
+import {matchers} from "./matchers";
+import {type Matcher} from "./types/matcher";
 
 /**
  * Parse message aganst `Matchers` and edit the Nick and Content based on `transform` results.
  * Only messages in channels are considered, and matchers with a `tracker` only
  * apply on the network/channels configured for that tracker in `trackers`.
  */
-export function parser (
+export function parser(
 	originalMessage: SharedMsg,
 	network: Pick<ClientNetwork, "trackers">,
 	channel: Pick<ClientChan, "type" | "name"> | undefined
@@ -23,7 +23,7 @@ export function parser (
 	// Bridge bots post in channels; a private query is never a bridged message
 	if (channel?.type !== ChanType.CHANNEL) return originalMessage;
 
-	const matcher = matchers.find(m => {
+	const matcher = matchers.find((m) => {
 		if (m.disabled) return false;
 		if (!inScope(m, network, channel)) return false;
 		if (m.type === "basic") return m.matches.includes(originalSender);
@@ -46,7 +46,7 @@ export function parser (
 		shoutbox: true,
 		original_nick: originalSender,
 		// Whose user this is, so their profile can be linked
-		tracker: matcher.tracker
+		tracker: matcher.tracker,
 	};
 
 	return message;
@@ -56,7 +56,7 @@ export function parser (
  * Whether `matcher` may run on this network/channel. Unscoped matchers (no
  * `tracker`) always may; scoped ones need their tracker in `network.trackers`.
  */
-function inScope (
+function inScope(
 	matcher: Matcher,
 	network: Pick<ClientNetwork, "trackers">,
 	channel: Pick<ClientChan, "type" | "name">
@@ -72,6 +72,6 @@ function inScope (
  * pipe). This is the same set `findNames` treats as part of a nick, so bridged
  * nicks added to the user list can still be matched as mentions.
  */
-function sanitizeNick (nick: string) {
+function sanitizeNick(nick: string) {
 	return nick.replaceAll(/[^\p{Letter}\p{Number}_\-[\]\\`^{|}]/gu, "");
 }

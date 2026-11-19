@@ -188,7 +188,8 @@ export const matchers: Matcher[] = [
 		tracker: "STC",
 		description: "nick: message",
 		matches: ["unit3dbridge"],
-		regex: /^(?<nick>[^\]]+): (?<content>.*)/,
+		// A nick has no spaces or colons, so it ends at the first ": "
+		regex: /^(?<nick>[^\s:]+?): (?<content>.*)/,
 		transform(message) {
 			return typedGroups(message.text!.match(this.regex));
 		},

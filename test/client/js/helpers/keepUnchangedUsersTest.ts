@@ -22,6 +22,13 @@ describe("keepUnchangedUsers helper", function () {
 		expect(keepUnchangedUsers([alice], [opped])[0]).to.equal(opped);
 	});
 
+	it("uses the new object for a user whose away status changed", function () {
+		const alice = user("alice");
+		const away = {...user("alice"), away: "lunch"};
+
+		expect(keepUnchangedUsers([alice], [away])[0]).to.equal(away);
+	});
+
 	it("follows the new list: order, joins and parts", function () {
 		const alice = user("alice");
 		const bob = user("bob");

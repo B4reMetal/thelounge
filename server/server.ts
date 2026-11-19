@@ -484,8 +484,7 @@ function initializeClient(
 	lastMessage: number,
 	openChannel: number
 ) {
-	// Not off(performAuthentication): catchHandlerErrors registered a wrapper
-	socket.removeAllListeners("auth:perform");
+	socket.off("auth:perform", performAuthentication);
 	socket.emit("auth:success");
 
 	client.clientAttach(socket.id, token);
@@ -1167,7 +1166,7 @@ export function catchHandlerErrors(socket: Socket) {
 	};
 
 	socket.on = function (event: string, handler: (...args: unknown[]) => unknown) {
-		return on(event, function (this: Socket, ...args: unknown[]) {
+		const wrapper = function (this: Socket, ...args: unknown[]) {
 			try {
 				const result = handler.apply(this, args);
 
@@ -1177,7 +1176,11 @@ export function catchHandlerErrors(socket: Socket) {
 			} catch (error) {
 				report(event, error);
 			}
-		});
+		};
+
+		// EventEmitter matches a listener's .listener in off() and listeners(),
+		// so off(event, handler) still removes it and once() can remove itself
+		return on(event, Object.assign(wrapper, {listener: handler}));
 	} as Socket["on"];
 }
 

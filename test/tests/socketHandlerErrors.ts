@@ -67,4 +67,24 @@ describe("Socket handler errors", function () {
 		expect(calledOnSocket).to.equal(true);
 		expect(errorStub.called).to.equal(false);
 	});
+
+	it("still removes a handler with off() and runs a once() handler once", function () {
+		const socket = fakeSocket();
+		catchHandlerErrors(socket as unknown as Socket);
+
+		let calls = 0;
+		const handler = () => calls++;
+
+		socket.on("auth:perform", handler);
+		socket.off("auth:perform", handler);
+		socket.emit("auth:perform");
+
+		socket.once("names", handler);
+		socket.emit("names");
+		socket.emit("names");
+
+		expect(calls).to.equal(1);
+		expect(socket.listenerCount("auth:perform")).to.equal(0);
+		expect(socket.listenerCount("names")).to.equal(0);
+	});
 });

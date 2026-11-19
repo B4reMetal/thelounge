@@ -242,6 +242,9 @@ function applyDevelopmentOverrides(config) {
 	const devConfig = {...config};
 
 	devConfig.target = "node";
+	// @vue/test-utils inlines a UMD build of js-beautify whose AMD branch
+	// names files that aren't shipped; take its CommonJS branch instead
+	devConfig.amd = false;
 	devConfig.devtool = "eval";
 	devConfig.stats = "errors-only";
 	devConfig.output = {

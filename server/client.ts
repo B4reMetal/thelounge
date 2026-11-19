@@ -479,6 +479,10 @@ class Client {
 	}
 
 	input(data) {
+		if (typeof data.text !== "string") {
+			return;
+		}
+
 		data.text.split("\n").forEach((line) => {
 			data.text = line;
 			this.inputLine(data);

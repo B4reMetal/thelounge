@@ -228,8 +228,10 @@ class Network {
 		// Remove !, :, @ and whitespace characters from nicknames and usernames
 		const cleanNick = (str: string) => str.replace(/[\x00\s:!@]/g, "_").substring(0, 100);
 
-		// Remove new lines and limit length
-		const cleanString = (str: string) => str.replace(/[\x00\r\n]/g, "").substring(0, 300);
+		// Remove new lines and limit length; anything but a string (from a
+		// malformed request) becomes empty
+		const cleanString = (str: unknown) =>
+			typeof str === "string" ? str.replace(/[\x00\r\n]/g, "").substring(0, 300) : "";
 
 		this.setNick(cleanNick(String(this.nick || Config.getDefaultNick())));
 

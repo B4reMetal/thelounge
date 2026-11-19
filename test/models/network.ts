@@ -166,6 +166,22 @@ describe("Network", function () {
 			expect(network2.username).to.equal("InvalidNick");
 		});
 
+		it("should treat fields that are not strings as empty", function () {
+			const network = new Network({
+				host: "localhost",
+				name: 5,
+				realname: {},
+				password: ["x"],
+				leaveMessage: null,
+			} as unknown as Partial<Network>);
+
+			expect(network.validate({} as Client)).to.equal(true);
+			expect(network.name).to.be.a("string");
+			expect(network.realname).to.equal(network.nick);
+			expect(network.password).to.equal("");
+			expect(network.leaveMessage).to.equal("");
+		});
+
 		it("should enforce lockNetwork", function () {
 			Config.values.lockNetwork = true;
 

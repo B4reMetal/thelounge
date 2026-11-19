@@ -67,6 +67,11 @@ interface ServerToClientEvents {
 	"network:status": EventHandler<{network: string; connected: boolean; secure: boolean}>;
 	"network:info": EventHandler<{uuid: string}>;
 	"network:name": EventHandler<{uuid: string; name: string}>;
+	"network:trackers": EventHandler<{
+		network: string;
+		trackerKey: string;
+		trackers?: SharedNetwork["trackers"];
+	}>;
 
 	nick: EventHandler<{network: string; nick: string}>;
 

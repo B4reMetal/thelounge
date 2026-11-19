@@ -27,6 +27,15 @@ socket.on("network:options", function (data) {
 	}
 });
 
+socket.on("network:trackers", function (data) {
+	const network = store.getters.findNetwork(data.network);
+
+	if (network) {
+		network.trackerKey = data.trackerKey;
+		network.trackers = data.trackers;
+	}
+});
+
 socket.on("network:status", function (data) {
 	const network = store.getters.findNetwork(data.network);
 

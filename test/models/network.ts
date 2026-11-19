@@ -446,6 +446,44 @@ describe("Network", function () {
 		});
 	});
 
+	describe("#getTrackerInfo()", function () {
+		it("tells networks on one bouncer apart by the network the login picks", function () {
+			const login = (username: string, password = "pw") =>
+				new Network({host: "znc.example.net", port: 6697, username, password});
+
+			const seedpool = login("alice@lounge/Seedpool").getTrackerInfo().trackerKey;
+			const aither = login("alice@lounge/Aither").getTrackerInfo().trackerKey;
+
+			expect(seedpool).to.not.equal(aither);
+			expect(login("alice@other/seedpool").getTrackerInfo().trackerKey).to.equal(seedpool);
+			expect(login("alice", "alice/Aither:pw").getTrackerInfo().trackerKey).to.equal(aither);
+			expect(login("alice").getTrackerInfo().trackerKey).to.equal(
+				new Network({host: "znc.example.net"}).getTrackerInfo().trackerKey
+			);
+		});
+
+		it("finds trackers by the server name a bouncer passes on", function () {
+			const saved = Config.values.trackers;
+			Config.values.trackers = {SP: {name: "Seedpool", network: "irc.seedpool.org"}};
+
+			try {
+				const network = new Network({
+					host: "znc.example.net",
+					username: "alice@lounge/Seedpool",
+				});
+				expect(network.getTrackerInfo().trackers).to.equal(undefined);
+
+				// What irc-framework keeps from the source of the welcome
+				Object.assign(network, {irc: {network: {server: "irc.seedpool.org"}}});
+				expect(network.getTrackerInfo().trackers).to.deep.equal([
+					{id: "SP", name: "Seedpool"},
+				]);
+			} finally {
+				Config.values.trackers = saved;
+			}
+		});
+	});
+
 	describe("#addChannel(newChan)", function () {
 		it("should add channel", function () {
 			const chan = new Chan({name: "#thelounge"});

@@ -408,7 +408,10 @@ export default {
 	//
 	// - `name`: the tracker's name.
 	// - `network`: the IRC server hostname, compared case-insensitively with the
-	//   server address of the user's network.
+	//   server address of the user's network, and with the name the server
+	//   gives when it is connected to. A bouncer such as ZNC passes on that
+	//   name from the IRC server behind it, so it is what matches there; the
+	//   name has to be exactly this hostname.
 	// - `channels` (optional): the tracker's channels, for when several trackers
 	//   share one IRC network. Omit if the whole network belongs to the tracker.
 	// - `profileUrl` (optional): address of a user's profile, with `{nick}` where

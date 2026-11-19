@@ -108,6 +108,8 @@ declare module "irc-framework" {
 		// Added by Max
 		connection: ConnectionOpts;
 		network: {
+			// Source of the server's welcome (001), once registered
+			server?: string;
 			options: {
 				CHANTYPES: string;
 				PREFIX: any;

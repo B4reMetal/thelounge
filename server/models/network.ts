@@ -12,7 +12,7 @@ import Client from "../client.js";
 import {MessageType} from "../../shared/types/msg.js";
 import {ChanType} from "../../shared/types/chan.js";
 import {SharedNetwork} from "../../shared/types/network.js";
-import {trackerNetworkKey} from "../plugins/trackerNetworks.js";
+import {bouncerNetworkName, trackerNetworkKey} from "../plugins/trackerNetworks.js";
 
 type NetworkIrcOptions = {
 	host: string;
@@ -469,6 +469,9 @@ class Network {
 			return;
 		}
 
+		// The host or the login (which picks a bouncer's network) may have changed
+		this.emitTrackerInfo(client);
+
 		if (this.name !== oldNetworkName) {
 			// Send updated network name to all connected clients
 			client.emit("network:name", {
@@ -549,17 +552,34 @@ class Network {
 		return {
 			uuid: this.uuid,
 			name: this.name,
-			// Stands for the host in trackers the user adds in their settings;
-			// the host itself isn't sent
-			trackerKey: trackerNetworkKey(this.host),
+			...this.getTrackerInfo(),
 			nick: this.nick,
 			serverOptions: this.serverOptions,
 			status: this.getNetworkStatus(),
 			channels: this.channels.map((channel) =>
 				channel.getFilteredClone(lastActiveChannel, lastMessage)
 			),
-			trackers: Config.getTrackersForHost(this.host),
 		};
+	}
+
+	/**
+	 * What ties this network to trackers: its key for the trackers the user
+	 * adds in their settings (the host itself isn't sent), and the trackers
+	 * from config.js whose users chat here.
+	 */
+	getTrackerInfo() {
+		return {
+			trackerKey: trackerNetworkKey(
+				this.host,
+				bouncerNetworkName(this.username, this.password)
+			),
+			trackers: Config.getTrackersForHost(this.host, this.irc?.network?.server),
+		};
+	}
+
+	/** Sends getTrackerInfo() again, after something it depends on changed */
+	emitTrackerInfo(client: Client) {
+		client.emit("network:trackers", {network: this.uuid, ...this.getTrackerInfo()});
 	}
 
 	getNetworkStatus() {

@@ -142,15 +142,21 @@ class Config {
 	 * The trackers whose users chat on an IRC server host (case-insensitive),
 	 * in the shape the client gets them. Disabled and incomplete entries are
 	 * skipped, and a profile address that can't be used is left out.
+	 *
+	 * `serverName` is the name the server gave when we connected (the source
+	 * of its welcome). A bouncer passes on the name of the IRC server behind
+	 * it, which is the only way to tell that server through the bouncer.
 	 */
-	getTrackersForHost(host: string | undefined): TrackerInfo[] | undefined {
+	getTrackersForHost(host: string | undefined, serverName?: string): TrackerInfo[] | undefined {
 		const trackers = this.values.trackers;
+		const wanted = [host, serverName]
+			.filter((name): name is string => typeof name === "string" && name !== "")
+			.map((name) => name.toLowerCase());
 
-		if (!host || !_.isPlainObject(trackers)) {
+		if (wanted.length === 0 || !_.isPlainObject(trackers)) {
 			return undefined;
 		}
 
-		const wantedHost = host.toLowerCase();
 		const result: TrackerInfo[] = [];
 
 		for (const [id, tracker] of Object.entries(trackers!)) {
@@ -158,7 +164,7 @@ class Config {
 				!_.isPlainObject(tracker) ||
 				tracker!.disabled ||
 				typeof tracker!.network !== "string" ||
-				tracker!.network.toLowerCase() !== wantedHost
+				!wanted.includes(tracker!.network.toLowerCase())
 			) {
 				continue;
 			}

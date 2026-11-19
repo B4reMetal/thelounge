@@ -31,6 +31,10 @@ export default <IrcEventHandler>function (irc, network) {
 	}
 
 	irc.on("registered", () => {
+		// The server's name is known now. Through a bouncer it is the only
+		// thing that tells which trackers' users chat here.
+		network.emitTrackerInfo(this);
+
 		if (network.irc.network.cap.enabled.length > 0) {
 			network.getLobby().pushMessage(
 				this,

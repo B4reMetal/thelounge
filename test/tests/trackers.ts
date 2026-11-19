@@ -58,6 +58,16 @@ describe("Config trackers", function () {
 			]);
 		});
 
+		it("also matches the name the server gave, as bouncers pass it on", function () {
+			// A ZNC on its own host, in front of Seedpool
+			expect(
+				Config.getTrackersForHost("znc.example.net", "IRC.Seedpool.org")!.map((t) => t.id)
+			).to.deep.equal(["SP"]);
+			expect(Config.getTrackersForHost("znc.example.net", "irc.znc.in")).to.equal(undefined);
+			expect(Config.getTrackersForHost(undefined, "irc.seedpool.org")!.length).to.equal(1);
+			expect(Config.getTrackersForHost("irc.seedpool.org", "")!.length).to.equal(1);
+		});
+
 		it("returns every tracker sharing a network, with its channels", function () {
 			const trackers = Config.getTrackersForHost("irc.p2p-network.net")!;
 

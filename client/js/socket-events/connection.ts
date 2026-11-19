@@ -1,6 +1,6 @@
 import {store} from "../store";
 import socket from "../socket";
-import {cancelAllPendingJumps} from "../chan";
+import {cancelAllHistoryRequests} from "../chan";
 
 socket.on("disconnect", handleDisconnect);
 socket.on("connect_error", handleDisconnect);
@@ -31,7 +31,7 @@ function handleDisconnect(data) {
 
 	store.commit("isConnected", false);
 	// Their answers won't come
-	cancelAllPendingJumps();
+	cancelAllHistoryRequests(store.state.networks);
 
 	if (!socket.io.reconnection()) {
 		store.commit(

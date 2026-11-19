@@ -103,6 +103,13 @@ type JumpTarget = {id: number | null; time: number | null};
 // After a jump the target is kept in place this long while the page settles
 const JUMP_HOLD_MS = 1500;
 
+// A touch scroll keeps going this long after the finger lifts (momentum)
+const TOUCH_MOMENTUM_MS = 1500;
+
+// After a page of older history arrives, "show older" isn't pressed for the
+// user again until this much later, so one swipe can't chain page after page
+const AUTO_LOAD_COOLDOWN_MS = 1000;
+
 export default defineComponent({
 	name: "MessageList",
 	components: {
@@ -150,6 +157,47 @@ export default defineComponent({
 
 		// Threshold for triggering window shifts (in pixels from edge)
 		const SCROLL_THRESHOLD = 200;
+
+		// Whether a finger is on the list, and when one last touched or left it
+		let touching = false;
+		let lastTouchAt = 0;
+
+		const onTouchStart = () => {
+			touching = true;
+			lastTouchAt = Date.now();
+		};
+
+		const onTouchEnd = () => {
+			touching = false;
+			lastTouchAt = Date.now();
+		};
+
+		// When the last page of older history arrived, and the pending
+		// re-check of the "show older" button once the cooldown is over
+		let olderPageArrivedAt = 0;
+		let autoLoadRecheck: ReturnType<typeof setTimeout> | undefined = undefined;
+
+		// Moves the list to `top`. During a touch scroll iOS Safari drops a
+		// scrollTop set from script (the momentum carries on from where it
+		// was), so whatever was just added above takes over the view: the
+		// user lands in the history that was loaded, near its top again,
+		// which loads the next page, and so on, days back. Turning scrolling
+		// off for a frame ends the momentum and makes the new position stick.
+		const setScrollTop = (el: HTMLElement, top: number) => {
+			if (!touching && Date.now() - lastTouchAt > TOUCH_MOMENTUM_MS) {
+				el.scrollTop = top;
+				return;
+			}
+
+			el.style.overflowY = "hidden";
+			el.scrollTop = top;
+
+			requestAnimationFrame(() => {
+				el.style.overflowY = "";
+				// Again, in case the frame without scrolling reset it
+				el.scrollTop = top;
+			});
+		};
 
 		// Build condensed message list (all messages, before windowing)
 		const allCondensedMessages = computed(() => {
@@ -364,9 +412,9 @@ export default defineComponent({
 			isScrolling.value = true;
 
 			if (anchor?.isConnected) {
-				el.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
+				setScrollTop(el, el.scrollTop + anchor.getBoundingClientRect().top - anchorTop);
 			} else {
-				el.scrollTop = oldScrollTop + el.scrollHeight - oldScrollHeight;
+				setScrollTop(el, oldScrollTop + el.scrollHeight - oldScrollHeight);
 			}
 
 			setTimeout(() => {
@@ -635,7 +683,9 @@ export default defineComponent({
 
 		// Load more from server
 		const onShowMoreClick = () => {
-			if (!store.state.isConnected) return;
+			// The button is only disabled once the page re-renders, a second
+			// press before that would ask for the same page again
+			if (!store.state.isConnected || props.channel.historyLoading) return;
 
 			requestHistory(props.channel.messages.find((message) => !message.showInActive));
 		};
@@ -716,6 +766,14 @@ export default defineComponent({
 
 		syncScrollState = handleScroll;
 
+		// Observing a button again reports whether it is in view right now
+		const recheckButton = (button: HTMLButtonElement | null) => {
+			if (button && historyObserver.value) {
+				historyObserver.value.unobserve(button);
+				historyObserver.value.observe(button);
+			}
+		};
+
 		// Presses the "show older" / "show newer" buttons for the user as soon
 		// as they scroll into view. A disabled button ignores the press, which
 		// is what keeps a page from being requested twice.
@@ -727,27 +785,54 @@ export default defineComponent({
 			if (!historyObserver.value) {
 				historyObserver.value = new IntersectionObserver(
 					(entries) => {
-						entries.forEach((entry) => {
-							if (entry.isIntersecting) {
-								(entry.target as HTMLButtonElement).click();
+						for (const entry of entries) {
+							if (!entry.isIntersecting) {
+								continue;
 							}
-						});
+
+							const button = entry.target as HTMLButtonElement;
+
+							if (button === loadMoreButton.value) {
+								const wait =
+									olderPageArrivedAt + AUTO_LOAD_COOLDOWN_MS - Date.now();
+
+								if (wait > 0) {
+									// Still in view once the cooldown is over: load then
+									clearTimeout(autoLoadRecheck);
+									autoLoadRecheck = setTimeout(
+										() => recheckButton(loadMoreButton.value),
+										wait
+									);
+									continue;
+								}
+							}
+
+							button.click();
+						}
 					},
 					{root: chat.value}
 				);
 			}
 
-			for (const button of [loadMoreButton.value, loadNewerButton.value]) {
-				if (button) {
-					historyObserver.value.unobserve(button);
-					historyObserver.value.observe(button);
+			recheckButton(loadMoreButton.value);
+			recheckButton(loadNewerButton.value);
+		};
+
+		watch(
+			() => props.channel.historyLoading,
+			(loading, wasLoading) => {
+				if (wasLoading && !loading) {
+					olderPageArrivedAt = Date.now();
 				}
 			}
-		};
+		);
 
 		// Initialize
 		onMounted(async () => {
 			chat.value?.addEventListener("scroll", handleScroll, {passive: true});
+			chat.value?.addEventListener("touchstart", onTouchStart, {passive: true});
+			chat.value?.addEventListener("touchend", onTouchEnd, {passive: true});
+			chat.value?.addEventListener("touchcancel", onTouchEnd, {passive: true});
 			eventbus.on("resize", handleResize);
 			eventbus.on("messages:around", onMessagesAround);
 
@@ -907,6 +992,10 @@ export default defineComponent({
 			eventbus.off("resize", handleResize);
 			eventbus.off("messages:around", onMessagesAround);
 			chat.value?.removeEventListener("scroll", handleScroll);
+			chat.value?.removeEventListener("touchstart", onTouchStart);
+			chat.value?.removeEventListener("touchend", onTouchEnd);
+			chat.value?.removeEventListener("touchcancel", onTouchEnd);
+			clearTimeout(autoLoadRecheck);
 		});
 
 		onUnmounted(() => {

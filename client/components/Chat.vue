@@ -139,6 +139,7 @@ import type {ClientNetwork, ClientChan} from "../js/types";
 import {useStore} from "../js/store";
 import {SpecialChanType, ChanType} from "../../shared/types/chan";
 import parseStyle from "../js/helpers/ircmessageparser/parseStyle";
+import topicCommand from "../js/helpers/topicCommand";
 
 export default defineComponent({
 	name: "Chat",
@@ -226,7 +227,7 @@ export default defineComponent({
 
 			if (props.channel.topic !== newTopic) {
 				const target = props.channel.id;
-				const text = `/topic ${newTopic}`;
+				const text = topicCommand(newTopic);
 				socket.emit("input", {target, text});
 			}
 		};

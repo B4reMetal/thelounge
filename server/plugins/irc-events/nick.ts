@@ -43,9 +43,7 @@ export default <IrcEventHandler>function (irc, network) {
 				user.nick = data.new_nick;
 				chan.setUser(user);
 
-				this.emit("users", {
-					chan: chan.id,
-				});
+				this.usersChanged(chan);
 			};
 
 			// Try to process through mass event aggregator

@@ -34,6 +34,9 @@ import {ServerToClientEvents} from "../shared/types/socket-events.js";
 import MassEventAggregator from "./plugins/massEventAggregator.js";
 import UserIdentLookup from "./plugins/userIdentLookup.js";
 
+// At most this often per channel, browsers are told its user list changed
+const USERS_NOTICE_MS = 500;
+
 const events = [
 	"away",
 	"cap",
@@ -120,6 +123,11 @@ class Client {
 	// Whether settings saved under an old name were moved to the new one on
 	// load, so the user file still has to be written with the new names
 	private settingsRenamed = false;
+	// Channels with a user list notice held back, see usersChanged()
+	private usersNotices = new Map<
+		number,
+		{pending: boolean; timer: ReturnType<typeof setTimeout>}
+	>();
 
 	constructor(manager: ClientManager, name?: string, config = {} as UserConfig) {
 		this.id = uuidv4();
@@ -264,6 +272,40 @@ class Client {
 		if (this.manager !== null) {
 			this.manager.sockets.in(this.id).emit(event, ...args);
 		}
+	}
+
+	/**
+	 * Tells the browsers that a channel's user list changed; one showing that
+	 * channel then asks for the whole list. A netsplit or a bridge reconnecting
+	 * changes it hundreds of times a second, so the first change is announced
+	 * straight away and later ones at most once per USERS_NOTICE_MS.
+	 */
+	usersChanged(chan: Chan) {
+		const held = this.usersNotices.get(chan.id);
+
+		if (held) {
+			held.pending = true;
+			return;
+		}
+
+		this.emit("users", {chan: chan.id});
+		this.holdUsersNotices(chan.id);
+	}
+
+	private holdUsersNotices(chanId: number) {
+		const held = {
+			pending: false,
+			timer: setTimeout(() => {
+				this.usersNotices.delete(chanId);
+
+				if (held.pending) {
+					this.emit("users", {chan: chanId});
+					this.holdUsersNotices(chanId);
+				}
+			}, USERS_NOTICE_MS),
+		};
+
+		this.usersNotices.set(chanId, held);
 	}
 
 	find(channelId: number) {
@@ -972,6 +1014,9 @@ class Client {
 		}
 
 		this.userIdentLookup.clear();
+
+		this.usersNotices.forEach(({timer}) => clearTimeout(timer));
+		this.usersNotices.clear();
 
 		this.networks.forEach((network) => {
 			network.quit();

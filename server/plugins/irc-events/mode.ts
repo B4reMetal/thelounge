@@ -138,9 +138,7 @@ export default <IrcEventHandler>function (irc, network) {
 				// TODO: This is horrible
 				irc.raw("NAMES", data.target);
 			} else {
-				this.emit("users", {
-					chan: targetChan.id,
-				});
+				this.usersChanged(targetChan);
 			}
 		};
 

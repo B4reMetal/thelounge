@@ -252,12 +252,7 @@ export default defineComponent({
 				}
 			}
 
-			return groups as {
-				[mode: string]: (ClientUser & {
-					original: UserInMessage;
-					string: string;
-				})[];
-			};
+			return groups;
 		});
 
 		const groupedUsers = computed(() => {

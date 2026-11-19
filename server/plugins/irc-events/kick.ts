@@ -33,6 +33,7 @@ export default <IrcEventHandler>function (irc, network) {
 				chan: chan.id,
 				state: chan.state,
 			});
+			this.emit("users", {chan: chan.id});
 			return;
 		}
 

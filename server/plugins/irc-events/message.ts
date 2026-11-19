@@ -174,8 +174,15 @@ export default <IrcEventHandler>function (this: Client, irc, network) {
 
 		chan.pushMessage(this, msg, !msg.self);
 
+		// Same messages the client notifies about with "Notify for all messages" on
+		const notify =
+			msg.highlight ||
+			(!msg.self &&
+				msg.type === MessageType.MESSAGE &&
+				this.config.clientSettings.notifyAllMessages === true);
+
 		// Do not send notifications if the channel is muted or for messages older than 15 minutes (znc buffer for example)
-		if (!chan.muted && msg.highlight && (!data.time || data.time > Date.now() - 900000)) {
+		if (!chan.muted && notify && (!data.time || data.time > Date.now() - 900000)) {
 			let title = chan.name;
 			let body = cleanMessage;
 

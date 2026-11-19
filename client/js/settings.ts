@@ -72,6 +72,8 @@ const defaultConfig = {
 	},
 	notifyAllMessages: {
 		default: false,
+		// The server reads it to decide which messages to send push notifications for
+		sync: "always",
 	},
 	showSeconds: {
 		default: false,

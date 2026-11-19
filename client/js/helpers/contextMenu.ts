@@ -2,11 +2,10 @@ import socket from "../socket";
 import eventbus from "../eventbus";
 import type {ClientChan, ClientNetwork, ClientUser} from "../types";
 import {switchToChannel} from "../router";
-import {TypedStore} from "../store";
+import {store as globalStore, TypedStore} from "../store";
 import useCloseChannel from "../hooks/use-close-channel";
 import {ChanType} from "../../../shared/types/chan";
-import { openInNewTab } from "./openInNewTab";
-import {getTrackerProfileUrl} from "./trackerProfile";
+import {hasTrackerProfile, openTrackerProfile} from "./openTrackerProfile";
 import groupSlug from "./groupSlug";
 
 type BaseContextMenuItem = {
@@ -150,15 +149,17 @@ export function generateChannelContextMenu(
 
 	// Add menu items for queries
 	if (channel.type === ChanType.QUERY) {
-		const trackerProfileUrl = getTrackerProfileUrl(network, channel, channel.name);
-
-		if (trackerProfileUrl) {
+		// Like the one in the user menu, only with the enhanced context menu
+		if (
+			globalStore.state.settings.enhancedContextMenuEnabled &&
+			hasTrackerProfile(network, channel, channel.name)
+		) {
 			items.push({
 				label: "Tracker Profile",
 				type: "item",
 				class: "action-open",
 				action() {
-					openInNewTab(trackerProfileUrl);
+					openTrackerProfile(network, channel, channel.name);
 				},
 			});
 		}
@@ -316,21 +317,20 @@ export function generateUserContextMenu(
 	store: TypedStore,
 	channel: ClientChan,
 	network: ClientNetwork,
-	user: Pick<ClientUser, "nick" | "modes">
+	user: Pick<ClientUser, "nick" | "modes"> & {tracker?: string}
 ): ContextMenuItem[] {
 	const currentChannelUser: ClientUser | Record<string, never> = channel
 		? channel.users.find((u) => u.nick === network.nick) || {}
 		: {};
 
-	// "Tracker Profile" for networks with a matching entry in config.js `torrentSites`
+	// "Tracker Profile" for networks with a matching entry in config.js `trackers`.
+	// A user bridged from a tracker's shoutbox is looked up on that tracker.
 	const trackerProfileEntry = (): ContextMenuItem[] => {
 		if (!store.state.settings.enhancedContextMenuEnabled) {
 			return [];
 		}
 
-		const url = getTrackerProfileUrl(network, channel, user.nick);
-
-		if (!url) {
+		if (!hasTrackerProfile(network, channel, user.nick, user.tracker)) {
 			return [];
 		}
 
@@ -340,7 +340,7 @@ export function generateUserContextMenu(
 				type: "item",
 				class: "action-open",
 				action() {
-					openInNewTab(url);
+					openTrackerProfile(network, channel, user.nick, user.tracker);
 				},
 			},
 		];
@@ -351,16 +351,19 @@ export function generateUserContextMenu(
 			label: user.nick,
 			type: "item",
 			class: "user",
-			action () {},
+			action() {},
 		};
 
-		if (store.state.settings.enhancedContextMenuEnabled && Boolean(network.channels.find(c => (c.groups?.length ?? 0) > 0))) {
+		if (
+			store.state.settings.enhancedContextMenuEnabled &&
+			Boolean(network.channels.find((c) => (c.groups?.length ?? 0) > 0))
+		) {
 			const customInspect = {
 				label: user.nick,
 				type: "item",
 				class: "user",
-				action (){
-					if (channel.type !== ChanType.CHANNEL) return
+				action() {
+					if (channel.type !== ChanType.CHANNEL) return;
 
 					socket.emit("input", {
 						target: channel.id,
@@ -368,14 +371,17 @@ export function generateUserContextMenu(
 					});
 				},
 			};
-			const userGroup = network.channels.find(c => c.users.find(u => u.nick === user.nick))?.groups?.find(g => g.users.includes(user.nick))?.name ?? 'Offline';
+			const userGroup =
+				network.channels
+					.find((c) => c.users.find((u) => u.nick === user.nick))
+					?.groups?.find((g) => g.users.includes(user.nick))?.name ?? "Offline";
 
 			return [
 				{
 					label: userGroup,
 					type: "item",
 					class: `group-${groupSlug(userGroup)}`,
-					action () {},
+					action() {},
 				},
 				{
 					type: "divider",
@@ -386,7 +392,7 @@ export function generateUserContextMenu(
 		}
 
 		return [defualt, ...trackerProfileEntry()] as ContextMenuItem[];
-	}
+	};
 
 	// Extra entries for enhanced context menu
 	const additionalContextMenuEntrys = () => {
@@ -437,7 +443,7 @@ export function generateUserContextMenu(
 			label: "User information",
 			type: "item",
 			class: "action-whois",
-			action ()  {
+			action() {
 				const chan = network.channels.find((c) => c.name === user.nick);
 
 				if (chan) {

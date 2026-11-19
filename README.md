@@ -40,8 +40,10 @@ services:
 
 Add a user with `docker compose exec thelounge thelounge add <name>`.
 
-`latest` is the newest release. Pin a version like `2026.11.0` to upgrade on your
-own schedule, or use `edge` for the newest unreleased changes.
+`latest` is the newest release. Versions read year, feature release, fix:
+`2026.12.1` is the 12th feature release of 2026 with one fix on top. Pin
+`2026.12` to get its fixes but no new features, pin `2026.12.1` to upgrade on
+your own schedule, or use `edge` for the newest unreleased changes.
 More options in [docs/DOCKER.md](docs/DOCKER.md).
 
 ## Coming from another version

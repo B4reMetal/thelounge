@@ -1,5 +1,11 @@
 import _ from "lodash";
-import {MessageType, LinkPreview, UserInMessage, WhoisData, MassEventSummary} from "../../shared/types/msg.js";
+import {
+	MessageType,
+	LinkPreview,
+	UserInMessage,
+	WhoisData,
+	MassEventSummary,
+} from "../../shared/types/msg.js";
 
 class Msg {
 	from!: UserInMessage;
@@ -87,6 +93,9 @@ class Msg {
 			case MessageType.RAW:
 			case MessageType.WHOIS:
 			case MessageType.PLUGIN:
+			// Mass event summaries stand for the individual messages, which are
+			// stored on their own
+			case MessageType.MASS_EVENT:
 				return false;
 			default:
 				return true;

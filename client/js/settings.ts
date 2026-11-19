@@ -190,10 +190,6 @@ const defaultConfig = {
 	enhancedContextMenuEnabled: {
 		default: true,
 	},
-	enableEnhancedSearch: {
-		// disable by default for performance reasons
-		default: false,
-	},
 	enableRainbowHotkey: {
 		default: true,
 	},
@@ -202,6 +198,10 @@ const defaultConfig = {
 	},
 	replyToMessagePlainText: {
 		default: false,
+	},
+	// Trackers the user added or changed, as JSON (see shared/trackers.ts)
+	userTrackers: {
+		default: "",
 	},
 };
 

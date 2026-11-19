@@ -5,10 +5,15 @@
 // refresh workflows only call it. No dependencies, so it runs before
 // `yarn install`. Tested by test/release/version.ts.
 //
-// Scheme: calendar versions YYYY.M.PATCH, tagged vYYYY.M.PATCH.
-//   - YYYY.M is the year and month (no leading zero: semver forbids it) of the
-//     first release in that line; PATCH counts further releases in it.
-//   - Pre-releases are YYYY.M.PATCH-rc.N of the release they lead up to.
+// Scheme: YEAR.FEATURE.PATCH, tagged vYEAR.FEATURE.PATCH.
+//   - YEAR is the year the feature release came out; FEATURE counts feature
+//     releases within that year, from 1 (2026.11 continues the 2026.11.x
+//     releases cut under the old month-based scheme); PATCH counts fix-only
+//     releases and base-image refreshes of that feature release.
+//   - A release with new features or a storage schema change bumps FEATURE;
+//     anything else bumps PATCH. The first feature release of a new year is
+//     YEAR.1.0. Patches never change the year: 2026.14.3 -> 2026.14.4.
+//   - Pre-releases are YEAR.FEATURE.PATCH-rc.N of the release they lead up to.
 //   - Majors of 2000 and above can never be stock The Lounge versions (4.x,
 //     5.x, ...), so fork tags never collide with the inherited stock tags, and
 //     they sort above every stock version in any semver comparison.
@@ -21,7 +26,7 @@ import {appendFileSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 
 export const SCHEME = {
-	name: "calver",
+	name: "year.feature.patch",
 	tagPrefix: "v",
 	// Lowest major that counts as a fork version; anything below is a stock tag
 	minForkMajor: 2000,
@@ -110,13 +115,7 @@ export function compare(a, b) {
 export function isForkVersion(version) {
 	const v = parse(version);
 
-	if (
-		!v ||
-		version.includes("+") ||
-		v.major < SCHEME.minForkMajor ||
-		v.minor < 1 ||
-		v.minor > 12
-	) {
+	if (!v || version.includes("+") || v.major < SCHEME.minForkMajor || v.minor < 1) {
 		return false;
 	}
 
@@ -136,25 +135,40 @@ export function forkVersions(tags) {
 		.sort(compare);
 }
 
-const isStable = (v) => parse(v).pre.length === 0;
-const line = (v) => `${parse(v).major}.${parse(v).minor}`;
-const core = (v) => {
+// parse() for versions already known to be valid
+const must = (v) => {
 	const p = parse(v);
+
+	if (!p) {
+		throw new Error(`not a version: ${v}`);
+	}
+
+	return p;
+};
+
+const isStable = (v) => must(v).pre.length === 0;
+const line = (v) => `${must(v).major}.${must(v).minor}`;
+
+const core = (v) => {
+	const p = must(v);
 	return `${p.major}.${p.minor}.${p.patch}`;
 };
 
 // Work out the next release.
-//   bump "auto":  YYYY.M.0 for the first release in a calendar month, else
-//                 the next patch of the newest line
-//   bump "patch": next patch of the newest stable release, whatever the date
-//                 (a hotfix; release from a branch to fix an older line)
-//   explicit:     use that version as is (must fit the scheme)
+//   bump "auto":    a feature release when `features` is set (the release
+//                   has new features or a storage change), else a patch
+//   bump "feature": next feature release: YEAR.FEATURE+1.0, or YEAR.1.0 when
+//                   the newest release is from an earlier year
+//   bump "patch":   next patch of the newest stable release (a fix-only
+//                   release; release from a branch to fix an older line)
+//   explicit:       use that version as is (must fit the scheme)
 // prerelease adds -rc.N to the version the bump would produce.
 export function nextVersion({
 	tags,
 	bump = "auto",
 	explicit = "",
 	prerelease = false,
+	features = false,
 	now = new Date(),
 }) {
 	const all = forkVersions(tags);
@@ -167,41 +181,38 @@ export function nextVersion({
 
 		if (!isForkVersion(version)) {
 			throw new Error(
-				`"${explicit}" does not fit the version scheme (YYYY.M.PATCH or YYYY.M.PATCH-${SCHEME.preId}.N)`
+				`"${explicit}" does not fit the version scheme (YEAR.FEATURE.PATCH or YEAR.FEATURE.PATCH-${SCHEME.preId}.N)`
 			);
 		}
 
 		return describe(version, all);
 	}
 
+	if (!["auto", "feature", "patch"].includes(bump)) {
+		throw new Error(`unknown bump "${bump}" (expected auto, feature or patch)`);
+	}
+
 	const year = now.getUTCFullYear();
-	const month = now.getUTCMonth() + 1;
+	const p = newestStable && parse(newestStable);
 	let target;
 
-	if (bump === "patch") {
-		if (!newestStable) {
+	if (bump === "patch" || (bump === "auto" && !features && p)) {
+		if (!p) {
 			throw new Error("bump=patch needs an earlier release; use bump=auto for the first one");
 		}
 
-		const p = parse(newestStable);
 		target = `${p.major}.${p.minor}.${p.patch + 1}`;
-	} else if (bump === "auto") {
-		const p = newestStable && parse(newestStable);
-
-		if (p && (p.major > year || (p.major === year && p.minor >= month))) {
-			// Already a release this month (or the clock is behind the tags)
-			target = `${p.major}.${p.minor}.${p.patch + 1}`;
-		} else {
-			target = `${year}.${month}.0`;
-		}
+	} else if (p && p.major >= year) {
+		// Another feature release this year (or the clock is behind the tags)
+		target = `${p.major}.${p.minor + 1}.0`;
 	} else {
-		throw new Error(`unknown bump "${bump}" (expected auto or patch)`);
+		target = `${year}.1.0`;
 	}
 
 	if (prerelease) {
 		const rcs = all
 			.filter((v) => core(v) === target && !isStable(v))
-			.map((v) => Number(parse(v).pre[1]));
+			.map((v) => Number(must(v).pre[1]));
 		version = `${target}-${SCHEME.preId}.${rcs.length ? Math.max(...rcs) + 1 : 1}`;
 	} else {
 		version = target;
@@ -226,7 +237,7 @@ export function describe(version, existing) {
 		tag: SCHEME.tagPrefix + version,
 		prerelease: pre,
 		exists: others.length !== existing.length,
-		// Only the newest stable release moves :latest and its YYYY.M tag, so a
+		// Only the newest stable release moves :latest and its YEAR.FEATURE tag, so a
 		// late fix for an older line cannot take them over
 		latest: !pre && stable.every((v) => compare(v, version) < 0),
 		lineLatest:
@@ -244,7 +255,7 @@ export function describe(version, existing) {
 //   prerelease: a release candidate   -> X.Y.Z-rc.N, next, sha-<short>
 // Weekly base-image refreshes are ordinary releases (a new version), so the
 // exact tags X.Y.Z are never re-pushed once published.
-// No year-only tag: under calendar versions "2026" pins nothing meaningful.
+// No year-only tag: "2026" would mix feature releases, so it pins nothing useful.
 export function imageTags({
 	channel,
 	version = "",
@@ -254,6 +265,7 @@ export function imageTags({
 	edge = false,
 }) {
 	const short = sha.slice(0, 7);
+
 	const need = (cond, what) => {
 		if (!cond) {
 			throw new Error(`channel ${channel} needs ${what}`);
@@ -266,6 +278,7 @@ export function imageTags({
 		case "edge":
 			need(short, "a commit sha");
 			return ["edge", `sha-${short}`];
+
 		case "release": {
 			need(isForkVersion(version) && isStable(version), "a stable fork version");
 			need(short, "a commit sha");
@@ -288,6 +301,7 @@ export function imageTags({
 
 			return tags;
 		}
+
 		case "prerelease":
 			need(isForkVersion(version) && !isStable(version), "a fork pre-release version");
 			need(short, "a commit sha");
@@ -337,23 +351,45 @@ function emit(obj) {
 	}
 }
 
-function main(argv) {
+// Whether the release since the newest stable tag needs a feature bump
+async function hasFeatures(tags) {
+	const {releaseChanges} = await import("./notes.mjs");
+	const newest = forkVersions(tags).filter(isStable).at(-1);
+	return releaseChanges(newest ? SCHEME.tagPrefix + newest : SCHEME.firstReleaseBase, "HEAD")
+		.features;
+}
+
+async function main(argv) {
 	const [cmd, ...rest] = argv;
 	const a = args(rest);
 	const now = a.date ? new Date(`${a.date}T12:00:00Z`) : new Date();
 	const tags = a.tags !== undefined ? a.tags.split(/[\s,]+/).filter(Boolean) : null;
 
 	switch (cmd) {
-		// Next release: --bump auto|patch [--version X] [--prerelease] [--date YYYY-MM-DD]
+		// Next release: --bump auto|feature|patch [--version X] [--prerelease]
+		//   [--features true|false] [--date YYYY-MM-DD]
+		// Without --features, auto reads the history since the newest release
 		case "next": {
+			const all = tags ?? gitTags();
+			const bump = a.bump || "auto";
+			const features =
+				a.features !== undefined
+					? bool(a.features)
+					: bump === "auto" && !a.version && (await hasFeatures(all));
 			const r = nextVersion({
-				tags: tags ?? gitTags(),
-				bump: a.bump || "auto",
+				tags: all,
+				bump,
+				features,
 				explicit: a.version || "",
 				prerelease: bool(a.prerelease),
 				now,
 			});
-			return emit({...r, stock_base: SCHEME.stockBase, first_base: SCHEME.firstReleaseBase});
+			return emit({
+				...r,
+				features,
+				stock_base: SCHEME.stockBase,
+				first_base: SCHEME.firstReleaseBase,
+			});
 		}
 
 		// All fork release tags, oldest first
@@ -401,10 +437,8 @@ function main(argv) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-	try {
-		main(process.argv.slice(2));
-	} catch (e) {
+	main(process.argv.slice(2)).catch((e) => {
 		process.stderr.write(`::error::${e.message}\n`);
 		process.exit(1);
-	}
+	});
 }

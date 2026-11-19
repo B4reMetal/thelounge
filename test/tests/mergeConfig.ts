@@ -2,7 +2,7 @@ import {expect} from "chai";
 import sinon from "sinon";
 
 import log from "../../server/log.js";
-import Config from "../../server/config.js";
+import Config, {type ConfigType} from "../../server/config.js";
 import TestUtil from "../util.js";
 
 // Test-specific type for config merge testing (arbitrary nested config objects)
@@ -10,6 +10,13 @@ type TestConfigValue = string | number | boolean | null | (() => unknown) | stri
 interface TestConfig {
 	[key: string]: TestConfigValue | TestConfig;
 }
+
+// The merge is generic; the tests use small ad hoc objects, not full configs
+const merge = (oldConfig: TestConfig, newConfig: TestConfig) =>
+	Config._merge_config_objects(
+		oldConfig as unknown as ConfigType,
+		newConfig as unknown as ConfigType
+	);
 
 describe("mergeConfig", function () {
 	let sandbox: sinon.SinonSandbox;
@@ -28,7 +35,7 @@ describe("mergeConfig", function () {
 		} as TestConfig;
 
 		expect(
-			Config._merge_config_objects(config, {
+			merge(config, {
 				ip: "overridden",
 			} as TestConfig)
 		).to.deep.equal({
@@ -42,7 +49,7 @@ describe("mergeConfig", function () {
 
 	it("should merge new properties", function () {
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					ip: "default",
 					newProp: "this should appear too",
@@ -59,7 +66,7 @@ describe("mergeConfig", function () {
 
 	it("should extend objects", function () {
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					tlsOptions: {},
 				} as TestConfig,
@@ -83,7 +90,7 @@ describe("mergeConfig", function () {
 		sandbox.stub(log, "warn").callsFake(TestUtil.sanitizeLog((str) => (warning += str)));
 
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					optionOne: 123,
 				} as TestConfig,
@@ -102,7 +109,7 @@ describe("mergeConfig", function () {
 
 	it("should not warn for unknown second level keys", function () {
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					optionOne: {
 						subOne: 123,
@@ -125,7 +132,7 @@ describe("mergeConfig", function () {
 
 	it("should allow changing nulls", function () {
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					oidentd: null,
 				} as TestConfig,
@@ -140,7 +147,7 @@ describe("mergeConfig", function () {
 
 	it("should allow changing nulls with objects", function () {
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					webirc: null,
 				} as TestConfig,
@@ -163,7 +170,7 @@ describe("mergeConfig", function () {
 		const callbackFunction = () => ({});
 
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					webirc: null,
 				} as TestConfig,
@@ -182,7 +189,7 @@ describe("mergeConfig", function () {
 
 	it("should keep new properties inside of objects", function () {
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					nestedOnce: {
 						ip: "default",
@@ -220,7 +227,7 @@ describe("mergeConfig", function () {
 
 	it("should not merge arrays", function () {
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					test: ["sqlite", "text"],
 				} as TestConfig,
@@ -233,7 +240,7 @@ describe("mergeConfig", function () {
 		});
 
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					test: ["sqlite", "text"],
 				} as TestConfig,
@@ -248,7 +255,7 @@ describe("mergeConfig", function () {
 
 	it("should change order in arrays", function () {
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					test: ["sqlite", "text"],
 				} as TestConfig,
@@ -272,7 +279,7 @@ describe("mergeConfig", function () {
 		sandbox.stub(log, "warn");
 
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					shouldBeObject: {
 						thing: "yes",
@@ -289,7 +296,7 @@ describe("mergeConfig", function () {
 		});
 
 		expect(
-			Config._merge_config_objects(
+			merge(
 				{
 					shouldBeString: "string",
 				} as TestConfig,

@@ -351,6 +351,9 @@ export default {
 	// Configure detection and aggregation of mass IRC events (netsplits/reconnects).
 	// When enabled, rapid consecutive status messages are buffered and displayed as
 	// a single summary message instead of flooding the chat with individual messages.
+	// The individual messages are still written to message storage, so history
+	// loaded from storage (for example after a restart) shows them instead of the
+	// summary.
 	//
 	// The available keys for the `massEventDetection` object are:
 	//
@@ -363,13 +366,15 @@ export default {
 	// - `refreshNamesAfter`: Whether to send NAMES after mass event ends to refresh
 	//   the user list.
 	//
-	// This value is set to enable mass event detection by default:
+	// By default, mass event detection is enabled and triggers on 10 messages
+	// within 10 seconds, ends after 10 seconds without one or after 5 minutes, and
+	// refreshes the user list afterwards:
 	massEventDetection: {
 		enable: true,
-		threshold: 10,        // Trigger after 10 messages (was 20)
-		windowMs: 10000,      // 10 second window (was 5s)
-		cooldownMs: 10000,    // 10 seconds of inactivity to end (was 3s)
-		maxDurationMs: 300000, // 5 minute max (was 1 min)
+		threshold: 10,
+		windowMs: 10000,
+		cooldownMs: 10000,
+		maxDurationMs: 300000,
 		refreshNamesAfter: true,
 	},
 
@@ -384,161 +389,159 @@ export default {
 	// This value is set to `false` by default.
 	useHexIp: false,
 
-	// ## Tracker profile links
+	// ## Trackers
 	//
-	// When the enhanced context menu is enabled, right-clicking a user on a
-	// network listed in `torrentSites` offers a "Tracker Profile" link that
-	// opens their profile on that tracker's website.
+	// ### `trackers`
 	//
-	// ### `defaultTorrentSiteInfo`
+	// Private trackers and the IRC network their users chat on, keyed by a short
+	// id. An entry is used for two things:
 	//
-	// Defaults applied to every entry in `torrentSites`. `profileUrl` is the path
-	// on the tracker that the nick is appended to, so links look like
-	// `https://<domain><profileUrl><nick>`.
-	defaultTorrentSiteInfo: {
-		profileUrl: "/users/",
-	},
-
-	// ### `torrentSites`
+	// - With the enhanced context menu enabled, right-clicking a user on the
+	//   tracker's network offers a "Tracker Profile" link to their profile on
+	//   the tracker's website. For a message relayed from the website's
+	//   shoutbox, the link goes to the profile of the person who wrote it.
+	// - Shoutbox bridge matchers (`client/js/helpers/shoutbox-bridge/matchers.ts`)
+	//   refer to a tracker by its id, and only rewrite bridged messages on that
+	//   tracker's network and channels.
 	//
-	// A list of trackers. Each entry has:
+	// Each entry has:
 	//
-	// - `abbreviation` and `name`: how the tracker is labelled.
-	// - `host`: the IRC server hostname, matched case-insensitively against the
-	//   network's server address.
-	// - `domain`: the tracker's website, e.g. `"seedpool.org"`.
-	// - `channels` (optional): only offer the link in these channels. Use this
-	//   when several trackers share one IRC network. Omit to allow all channels.
-	// - `profileUrl` (optional): overrides `defaultTorrentSiteInfo.profileUrl`.
-	// - `disabled` (optional): set to `true` to skip the entry.
+	// - `name`: the tracker's name.
+	// - `network`: the IRC server hostname, compared case-insensitively with the
+	//   server address of the user's network.
+	// - `channels` (optional): the tracker's channels, for when several trackers
+	//   share one IRC network. Omit if the whole network belongs to the tracker.
+	// - `profileUrl` (optional): address of a user's profile, with `{nick}` where
+	//   the nick goes. On trackers whose IRC server shows users as
+	//   `<user id>@<name>.<class>.<tracker>`, use `{ident}` for the user id
+	//   instead: The Lounge asks the IRC server who the user is when the link is
+	//   clicked, without showing that anywhere. Leave `profileUrl` out if
+	//   profiles can be found neither way; no link is offered then.
+	// - `userHost` (optional, for `{ident}` addresses): what the hostname of the
+	//   tracker's users looks like, with `*` for any text. A link is only
+	//   offered for users it matches, which also tells the tracker's users
+	//   apart in private messages on a network it shares with others.
+	// - `disabled` (optional): set to `true` to ignore the entry.
 	//
-	// For example:
+	// What you set here is merged with the list below, entry by entry, so you
+	// only write what you add or change. For example, to add a tracker, give
+	// another one a different profile address and drop a third:
 	//
 	// ```js
-	// torrentSites: [
-	//   {
-	//     abbreviation: "EX",
+	// trackers: {
+	//   EX: {
 	//     name: "Example",
-	//     host: "irc.example.org",
-	//     domain: "example.org",
+	//     network: "irc.example.org",
 	//     channels: ["#example"],
+	//     profileUrl: "https://example.org/user/{nick}/profile",
 	//   },
-	// ],
+	//   SP: {profileUrl: "https://seedpool.org/users/{nick}"},
+	//   LST: null,
+	// },
 	// ```
 	//
-	// Setting your own list replaces this one entirely. Set to `null` to disable.
-	torrentSites: [
-		{
-			abbreviation: "ULCX",
+	// Set `trackers` to `null` to turn all of this off.
+	//
+	// The older `torrentSites` and `defaultTorrentSiteInfo` options are still
+	// read if your config has them. As before, a `torrentSites` list replaces
+	// the list below instead of being merged with it.
+	trackers: {
+		ULCX: {
 			name: "Upload.cx",
-			host: "irc.upload.cx",
-			domain: "upload.cx",
+			network: "irc.upload.cx",
 			channels: ["#Announce", "#ULCX", "#Support"],
+			profileUrl: "https://upload.cx/users/{nick}",
 		},
-		{
-			abbreviation: "RFX",
+		ATH: {
+			name: "Aither",
+			network: "irc.aither.cc",
+			profileUrl: "https://aither.cc/users/{nick}",
+		},
+		RFX: {
 			name: "Reelflix",
-			host: "irc.reelflix.cc",
-			domain: "reelflix.cc",
+			network: "irc.reelflix.cc",
+			profileUrl: "https://reelflix.cc/users/{nick}",
 		},
-		{
-			abbreviation: "SP",
+		SP: {
 			name: "Seedpool",
-			host: "irc.seedpool.org",
-			domain: "seedpool.org",
+			network: "irc.seedpool.org",
+			profileUrl: "https://seedpool.org/users/{nick}",
 		},
-		{
-			abbreviation: "HHD",
+		HHD: {
 			name: "HomieHelpdesk",
-			host: "irc.homiehelpdesk.net",
-			domain: "homiehelpdesk.net",
+			network: "irc.homiehelpdesk.net",
+			profileUrl: "https://homiehelpdesk.net/users/{nick}",
 		},
-		{
-			abbreviation: "DP",
+		DP: {
 			name: "DarkPeers",
-			host: "irc.darkpeers.org",
-			domain: "darkpeers.org",
+			network: "irc.darkpeers.org",
+			profileUrl: "https://darkpeers.org/users/{nick}",
 		},
-		{
-			abbreviation: "BLU",
+		BLU: {
 			name: "Blutopia",
-			host: "irc.p2p-network.net",
-			domain: "blutopia.cc",
+			network: "irc.p2p-network.net",
 			channels: ["#blutopia"],
+			profileUrl: "https://blutopia.cc/users/{nick}",
 		},
-		{
-			abbreviation: "RAS",
+		RAS: {
 			name: "Rastastugan",
-			host: "irc.rizon.net",
-			domain: "rastastugan.org",
+			network: "irc.rizon.net",
 			channels: ["#rastastugan"],
+			profileUrl: "https://rastastugan.org/users/{nick}",
 		},
-		{
-			abbreviation: "LST",
+		LST: {
 			name: "LST",
-			host: "irc.lst.gg",
-			domain: "lst.gg",
+			network: "irc.lst.gg",
+			profileUrl: "https://lst.gg/users/{nick}",
 		},
-		{
-			abbreviation: "LUME",
+		LUME: {
 			name: "Luminarr",
-			host: "irc.luminarr.me",
-			domain: "luminarr.me",
+			network: "irc.luminarr.me",
+			profileUrl: "https://luminarr.me/users/{nick}",
 		},
-		{
-			abbreviation: "STC",
+		STC: {
 			name: "Skip The Commercials",
-			host: "irc.skipthecommercials.xyz",
-			domain: "skipthecommercials.xyz",
+			network: "irc.skipthecommercials.xyz",
+			profileUrl: "https://skipthecommercials.xyz/users/{nick}",
 		},
-		{
-			abbreviation: "RHD",
+		RHD: {
 			name: "Rocket HD",
-			host: "irc.rocket-hd.cc",
-			domain: "rocket-hd.cc",
+			network: "irc.rocket-hd.cc",
+			profileUrl: "https://rocket-hd.cc/users/{nick}",
 		},
-		{
-			abbreviation: "A4K",
+		A4K: {
 			name: "Aura4K",
-			host: "irc.aura4k.net",
-			domain: "aura4k.net",
+			network: "irc.aura4k.net",
+			profileUrl: "https://aura4k.net/users/{nick}",
 		},
-		{
-			abbreviation: "MNS",
+		MNS: {
 			name: "MidnightScene",
-			host: "irc.midnightscene.cc",
-			domain: "midnightscene.cc",
+			network: "irc.midnightscene.cc",
+			profileUrl: "https://midnightscene.cc/users/{nick}",
 		},
-		{
-			abbreviation: "OE+",
+		"OE+": {
 			name: "OnlyEncodes+",
-			host: "irc.onlyencodes.cc",
-			domain: "onlyencodes.cc",
+			network: "irc.onlyencodes.cc",
+			profileUrl: "https://onlyencodes.cc/users/{nick}",
 		},
-		{
-			abbreviation: "IHD",
+		IHD: {
 			name: "InfinityHD",
-			host: "irc.infinityhd.net",
-			domain: "infinityhd.net",
+			network: "irc.infinityhd.net",
+			profileUrl: "https://infinityhd.net/users/{nick}",
 		},
-		{
-			abbreviation: "YUS",
+		YUS: {
 			name: "Yu-Scene",
-			host: "irc.yu-scene.net",
-			domain: "yu-scene.net",
+			network: "irc.yu-scene.net",
+			profileUrl: "https://yu-scene.net/users/{nick}",
 		},
-		{
-			abbreviation: "ZNTH",
+		ZNTH: {
 			name: "Zenith",
-			host: "irc.znth.cx",
-			domain: "znth.cx",
+			network: "irc.znth.cx",
+			profileUrl: "https://znth.cx/users/{nick}",
 		},
-		{
-			disabled: true, // Profile URLs aren't based on the username
-			abbreviation: "ANT",
+		ANT: {
 			name: "Anthelion",
-			host: "irc.nebulance.io",
-			domain: "anthelion.me",
+			network: "irc.nebulance.io",
 			channels: [
 				"#ant",
 				"#ant-announce",
@@ -547,13 +550,11 @@ export default {
 				"#ant-invites",
 				"#ant-shout",
 			],
+			// Profiles on this tracker can't be found by nick
 		},
-		{
-			disabled: true, // Profile URLs aren't based on the username
-			abbreviation: "RED",
+		RED: {
 			name: "Redacted",
-			host: "irc.scratch-network.net",
-			domain: "redacted.sh",
+			network: "irc.scratch-network.net",
 			channels: [
 				"#redacted",
 				"#red-PU",
@@ -565,15 +566,33 @@ export default {
 				"#red-ptm",
 				"#red-metadata",
 			],
+			profileUrl: "https://redacted.sh/user.php?id={ident}",
+			userHost: "*.redacted.sh",
 		},
-		{
-			disabled: true, // Profile URLs aren't based on the username
-			abbreviation: "MAM",
+		OPS: {
+			name: "Orpheus",
+			network: "irc.orpheus.network",
+			profileUrl: "https://orpheus.network/user.php?id={ident}",
+			userHost: "*.orpheus.network",
+		},
+		GGN: {
+			name: "GazelleGames",
+			network: "irc.gazellegames.net",
+			profileUrl: "https://gazellegames.net/user.php?id={ident}",
+			userHost: "*.gazellegames.net",
+		},
+		AB: {
+			name: "AnimeBytes",
+			network: "irc.animefriends.moe",
+			profileUrl: "https://animebytes.tv/user.php?id={ident}",
+			userHost: "*.AnimeBytes",
+		},
+		MAM: {
 			name: "MyAnonamouse",
-			host: "irc.myanonamouse.net",
-			domain: "myanonamouse.net",
+			network: "irc.myanonamouse.net",
+			// Profiles on this tracker can't be found by nick
 		},
-	],
+	},
 
 	// ## WEBIRC support
 	//

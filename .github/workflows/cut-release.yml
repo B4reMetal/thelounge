@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "auto: YYYY.M.0 in a new month, else next patch. patch: next patch of the newest release (hotfix)"
+        description: "auto: feature release if features or a storage change were merged, else patch. feature/patch force one."
         type: choice
-        options: [auto, patch]
+        options: [auto, feature, patch]
         default: auto
       version:
         description: "Explicit version (overrides bump), e.g. 2026.11.3 or 2026.12.0-rc.1. An existing tag resumes that release."
@@ -158,8 +158,12 @@ jobs:
           TAG: ${{ steps.plan.outputs.tag }}
           PREVIOUS: ${{ steps.plan.outputs.previous_tag }}
           DRY_RUN: ${{ inputs.dry_run }}
+          FEATURES: ${{ steps.plan.outputs.features }}
         run: |
           echo "### ${DRY_RUN/true/Dry run: }$TAG (previous: ${PREVIOUS:-none})" >> "$GITHUB_STEP_SUMMARY"
+          if [[ $FEATURES == true ]]; then
+            echo "Feature release: new features or a storage change since ${PREVIOUS:-the start}." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   test:
     needs: plan

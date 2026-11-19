@@ -2,10 +2,11 @@ import _ from "lodash";
 import log from "../log.js";
 import fs from "fs";
 import path from "path";
-import WebPushAPI from "web-push";
+import * as WebPushAPI from "web-push";
 import Config from "../config.js";
 import Client from "../client.js";
 import * as os from "os";
+import {setTrackerKeySecret} from "./trackerNetworks.js";
 
 export interface WebPushPayload {
 	type: "notification";
@@ -69,6 +70,9 @@ class WebPush {
 
 			log.info("New VAPID key pair has been generated for use with push subscription.");
 		}
+
+		// Also the persisted secret tracker network keys are derived from
+		setTrackerKeySecret(this.vapidKeys.privateKey);
 
 		WebPushAPI.setVapidDetails(
 			"https://github.com/fHori/thelounge",

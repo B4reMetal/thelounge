@@ -1,19 +1,19 @@
 import log from "../server/log.js";
 import Config from "../server/config.js";
 import {expect, assert} from "chai";
-import got from "got";
 import io from "socket.io-client";
-import util from "./util";
+import util from "./util.js";
 import changelog from "../server/plugins/changelog.js";
 
 import sinon from "sinon";
+import type {AddressInfo} from "net";
 import ClientManager from "../server/clientManager.js";
 
 describe("Server", function () {
 	// Increase timeout due to unpredictable I/O on CI services
 	this.timeout(util.isRunningOnCI() ? 25000 : 5000);
 
-	let serverInstance: import("../server/server").ServerInstance;
+	let serverInstance: import("../server/server.js").ServerInstance;
 	let logInfoStub: sinon.SinonStub<string[], void>;
 	let logWarnStub: sinon.SinonStub<string[], void>;
 	let checkForUpdatesStub: sinon.SinonStub<[manager: ClientManager], void>;
@@ -35,7 +35,7 @@ describe("Server", function () {
 		});
 
 		checkForUpdatesStub = sinon.stub(changelog, "checkForUpdates");
-		serverInstance = await (await import("../server/server")).default({dev: false});
+		serverInstance = await (await import("../server/server.js")).default({dev: false});
 	});
 
 	after(function (done) {
@@ -48,23 +48,28 @@ describe("Server", function () {
 		serverInstance.stop(done);
 	});
 
-	const webURL = `http://${Config.values.host}:${Config.values.port}/`;
+	// The address the server under test actually listens on
+	const webURL = () => {
+		const {address, port} = serverInstance.httpServer.address() as AddressInfo;
+		return `http://${address}:${port}/`;
+	};
 
 	describe("Express", () => {
-		it("should run a web server on " + webURL, async () => {
-			const response = await got(webURL);
-			expect(response.statusCode).to.equal(200);
-			expect(response.body).to.include("<title>The Lounge</title>");
-			expect(response.body).to.include("js/bundle.js");
+		it("should run a web server", async () => {
+			const response = await fetch(webURL());
+			const body = await response.text();
+			expect(response.status).to.equal(200);
+			expect(body).to.include("<title>The Lounge</title>");
+			expect(body).to.include("js/bundle.js");
 		});
 
 		it("should serve static content correctly", async () => {
-			const response = await got(webURL + "thelounge.webmanifest");
-			const body = JSON.parse(response.body);
+			const response = await fetch(webURL() + "thelounge.webmanifest");
+			const body = (await response.json()) as {name: string};
 
-			expect(response.statusCode).to.equal(200);
+			expect(response.status).to.equal(200);
 			expect(body.name).to.equal("The Lounge");
-			expect(response.headers["content-type"]).to.match(
+			expect(response.headers.get("content-type")).to.match(
 				/^application\/manifest\+json(?:;\s*charset=utf-8)?$/
 			);
 		});
@@ -76,7 +81,7 @@ describe("Server", function () {
 		let client: ReturnType<typeof io>;
 
 		beforeEach(() => {
-			client = io(webURL, {
+			client = io(webURL(), {
 				path: "/socket.io/",
 				autoConnect: false,
 				reconnection: false,

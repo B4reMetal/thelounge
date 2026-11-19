@@ -38,7 +38,7 @@ class MockClient extends EventEmitter {
 				previews: [],
 			},
 			opts
-		) as Message;
+		) as unknown as Message;
 
 		return message;
 	}

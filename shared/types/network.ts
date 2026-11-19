@@ -32,40 +32,57 @@ export type SharedNetworkStatus = {
 export type SharedNetwork = {
 	uuid: string;
 	name: string;
+	// Key for the IRC server host, which trackers in the user's settings
+	// are tied to. Derived from the host with a server secret, the host
+	// itself isn't sent.
+	trackerKey: string;
 	nick: string;
 	serverOptions: SharedServerOptions;
 	status: SharedNetworkStatus;
 	channels: SharedNetworkChan[];
-	// Trackers configured for this network's host, if any
-	torrentSites?: TorrentSiteInfo[];
+	// Trackers whose users chat on this network, if any
+	trackers?: TrackerInfo[];
 };
 
-// A tracker whose users chat on an IRC network. Used to build "Tracker Profile"
-// links in the user context menu.
-export type TorrentSite = {
+// A tracker whose users chat on an IRC network, as written in config.js
+// `trackers` (keyed by id). Used for "Tracker Profile" links in the user
+// context menu, and to limit shoutbox bridge matchers to the tracker's own
+// network and channels.
+export type TrackerConfig = {
+	name?: string;
+	// IRC server hostname, compared case-insensitively against the network host
+	network?: string;
+	// The tracker's channels (case-insensitive). Omit for the whole network.
+	channels?: string[];
+	// Address of a user's profile, with `{nick}` where the nick goes, or
+	// `{ident}` for trackers whose IRC server puts the user id in the ident
+	profileUrl?: string;
+	// What the hostname of the tracker's users looks like, `*` for any text.
+	// Only checked for `{ident}` addresses.
+	userHost?: string;
+	disabled?: boolean;
+};
+
+// The older `torrentSites` list entry, still read from existing configs
+export type LegacyTorrentSite = {
 	disabled?: boolean;
 	abbreviation: string;
 	name: string;
-	// IRC server hostname, compared case-insensitively against the network host
 	host: string;
-	// Tracker web domain, e.g. "seedpool.org"
 	domain: string;
-	// Only offer the link in these channels (case-insensitive). Omit for all channels.
 	channels?: string[];
-	// Path on the tracker that the nick is appended to. Defaults to defaultTorrentSiteInfo.profileUrl.
 	profileUrl?: string;
+	profileLink?: boolean;
 };
 
-export type DefaultTorrentSiteInfo = {
-	profileUrl: string;
-};
-
-// A configured site after defaults are applied. profileUrl is absolute
-// (https://domain/path/), ready for an encoded nick to be appended.
-export type TorrentSiteInfo = {
-	abbreviation: string;
+// A tracker as sent to the client for a network it applies to
+export type TrackerInfo = {
+	id: string;
 	name: string;
-	domain: string;
 	channels?: string[];
-	profileUrl: string;
+	// Absent when the tracker has no usable profile address
+	profileUrl?: string;
+	userHost?: string;
 };
+
+// The placeholders in `profileUrl` are in shared/trackers.ts

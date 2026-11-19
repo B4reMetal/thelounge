@@ -6,24 +6,61 @@ import Config from "../config.js";
 import log from "../log.js";
 import {MessageType, MassEventSummary} from "../../shared/types/msg.js";
 import {condensedTypes} from "../../shared/irc.js";
+import {messageKey} from "../../shared/messageKey.js";
 
-interface BufferedMessage {
-	msg: Msg;
-	timestamp: number;
-}
+// The most messages one summary stands for. Their keys are held in memory
+// for as long as the summary is, so a longer flood is split into several
+// summaries instead.
+export const maxCapturedPerSummary = 5000;
+
+type SummaryCounts = Omit<MassEventSummary, "duration" | "startTime" | "endTime">;
 
 interface ChannelMassEventState {
 	isActive: boolean;
-	buffer: BufferedMessage[];
-	preBuffer: BufferedMessage[]; // Messages before activation (for accurate counting)
-	startTime: number | null;
+	// Counts of the messages captured since activation
+	counts: SummaryCounts;
+	// Keys (see messageKey) of the messages captured since activation
+	captured: Set<string>;
+	// Earliest and latest `time` of the captured messages
+	firstTime: number | null;
+	lastTime: number | null;
 	cooldownTimer: ReturnType<typeof setTimeout> | null;
 	maxDurationTimer: ReturnType<typeof setTimeout> | null;
 	recentTimestamps: number[];
 }
 
+function emptyCounts(): SummaryCounts {
+	return {
+		joins: 0,
+		parts: 0,
+		quits: 0,
+		modes: 0,
+		nicks: 0,
+		kicks: 0,
+		chghosts: 0,
+		away: 0,
+		back: 0,
+	};
+}
+
+/**
+ * Aggregates floods of join/part/quit/mode/... messages (netsplits, reconnects)
+ * into a single summary message.
+ *
+ * While a mass event is active, captured messages are not sent to the browser
+ * and not held in the channel's in-memory history; the live view gets one
+ * MASS_EVENT summary when the event ends. They are still written to message
+ * storage straight away, so stored history stays complete. The summary itself
+ * is not stored (see Msg.isLoggable), as it only describes rows that are.
+ *
+ * Code that merges stored rows into in-memory history has to skip the rows a
+ * held summary already stands for, see coveredByMassEvent().
+ */
 class MassEventAggregator {
 	private channelStates: Map<number, ChannelMassEventState> = new Map();
+	// The keys of the messages each summary stands for. Held only as long
+	// as the summary itself is (in a channel's in-memory history).
+	private summaryKeys = new WeakMap<Msg, ReadonlySet<string>>();
 	private client: Client;
 
 	constructor(client: Client) {
@@ -31,24 +68,30 @@ class MassEventAggregator {
 	}
 
 	private getOrCreateState(chanId: number): ChannelMassEventState {
-		if (!this.channelStates.has(chanId)) {
-			this.channelStates.set(chanId, {
+		let state = this.channelStates.get(chanId);
+
+		if (!state) {
+			state = {
 				isActive: false,
-				buffer: [],
-				preBuffer: [],
-				startTime: null,
+				counts: emptyCounts(),
+				captured: new Set(),
+				firstTime: null,
+				lastTime: null,
 				cooldownTimer: null,
 				maxDurationTimer: null,
 				recentTimestamps: [],
-			});
+			};
+			this.channelStates.set(chanId, state);
 		}
 
-		return this.channelStates.get(chanId)!;
+		return state;
 	}
 
 	/**
 	 * Process an incoming status message.
-	 * Returns true if the message was buffered (mass event active).
+	 * Returns true if the message was captured (mass event active): it has been
+	 * written to message storage and will be part of the summary, the caller
+	 * must not push it to the channel.
 	 * Returns false if the message should be sent normally.
 	 */
 	processMessage(
@@ -76,44 +119,31 @@ class MassEventAggregator {
 		const state = this.getOrCreateState(chan.id);
 		const now = Date.now();
 
-		// Update recent timestamps (sliding window)
-		state.recentTimestamps.push(now);
-		const windowStart = now - config.windowMs;
-		state.recentTimestamps = state.recentTimestamps.filter((t) => t > windowStart);
-
-		// Check if we should activate mass event mode
 		if (!state.isActive) {
-			// Track message in preBuffer for accurate counting when activation happens
-			state.preBuffer.push({msg, timestamp: now});
+			// Update recent timestamps (sliding window)
+			const windowStart = now - config.windowMs;
+			state.recentTimestamps = state.recentTimestamps.filter((t) => t > windowStart);
+			state.recentTimestamps.push(now);
 
-			// Clean old messages from preBuffer (keep only within window)
-			state.preBuffer = state.preBuffer.filter((m) => m.timestamp > windowStart);
-
-			if (state.recentTimestamps.length >= config.threshold) {
-				log.debug(`MassEvent: ACTIVATING for ${chan.name} (${state.recentTimestamps.length} msgs, ${state.preBuffer.length} in preBuffer)`);
-
-				// Move preBuffer to main buffer when activating
-				state.buffer = [...state.preBuffer];
-				state.preBuffer = [];
-
-				this.activateMassEvent(state, chan, network, now);
-
-				// Execute user update callback
-				if (userUpdateCallback) {
-					userUpdateCallback();
-				}
-
-				// Reset cooldown timer
-				this.resetCooldownTimer(state, chan, network);
-
-				return true; // Message was captured in preBuffer, now in main buffer
+			if (state.recentTimestamps.length < config.threshold) {
+				return false; // Not in mass event mode, process normally
 			}
 
-			return false; // Not in mass event mode, process normally
+			// The messages before this one were already sent normally, so they
+			// are not part of the summary. Capturing starts with this one.
+			log.debug(
+				`MassEvent: ACTIVATING for ${chan.name} (${state.recentTimestamps.length} msgs)`
+			);
+
+			state.recentTimestamps = [];
+			this.activateMassEvent(state, chan, network);
+		} else if (state.captured.size >= maxCapturedPerSummary) {
+			// Bounds the keys a summary holds on to: carry on with a new one
+			this.endMassEvent(state, chan, network);
+			this.activateMassEvent(state, chan, network);
 		}
 
-		// We're in mass event mode - buffer the message
-		state.buffer.push({msg, timestamp: now});
+		this.capture(state, chan, msg);
 
 		// Execute user update callback (for real-time user list updates)
 		if (userUpdateCallback) {
@@ -126,14 +156,61 @@ class MassEventAggregator {
 		return true;
 	}
 
-	private activateMassEvent(
-		state: ChannelMassEventState,
-		chan: Chan,
-		network: Network,
-		now: number
-	): void {
+	/**
+	 * Returns a check for whether a stored message is already represented by a
+	 * mass event summary held in the channel's memory (or by the mass event in
+	 * progress), so it must not be added to the in-memory history next to it.
+	 *
+	 * Only the messages that were actually captured match, by id and time:
+	 * message times come from the IRC server and say nothing about which
+	 * messages a summary stands for.
+	 */
+	coveredByMassEvent(chan: Chan): (msg: Msg) => boolean {
+		const sets: ReadonlySet<string>[] = [];
+
+		for (const held of chan.messages) {
+			const keys = held.type === MessageType.MASS_EVENT && this.summaryKeys.get(held);
+
+			if (keys) {
+				sets.push(keys);
+			}
+		}
+
+		const state = this.channelStates.get(chan.id);
+
+		if (state?.isActive && state.captured.size > 0) {
+			sets.push(state.captured);
+		}
+
+		return (msg) => {
+			if (sets.length === 0 || !condensedTypes.has(msg.type)) {
+				return false;
+			}
+
+			const key = messageKey(msg);
+			return sets.some((keys) => keys.has(key));
+		};
+	}
+
+	private capture(state: ChannelMassEventState, chan: Chan, msg: Msg) {
+		this.count(state.counts, msg);
+
+		const time = new Date(msg.time).getTime();
+		state.firstTime = state.firstTime === null ? time : Math.min(state.firstTime, time);
+		state.lastTime = state.lastTime === null ? time : Math.max(state.lastTime, time);
+
+		// Keep the individual message in stored history. It gets an id like
+		// every other message so it can be told apart from them.
+		msg.id = this.client.idMsg++;
+		state.captured.add(messageKey(msg));
+
+		if (!Config.values.public) {
+			chan.storeMessage(this.client, msg);
+		}
+	}
+
+	private activateMassEvent(state: ChannelMassEventState, chan: Chan, network: Network): void {
 		state.isActive = true;
-		state.startTime = now;
 
 		const config = Config.values.massEventDetection;
 
@@ -143,11 +220,7 @@ class MassEventAggregator {
 		}, config.maxDurationMs);
 	}
 
-	private resetCooldownTimer(
-		state: ChannelMassEventState,
-		chan: Chan,
-		network: Network
-	): void {
+	private resetCooldownTimer(state: ChannelMassEventState, chan: Chan, network: Network): void {
 		if (state.cooldownTimer) {
 			clearTimeout(state.cooldownTimer);
 		}
@@ -159,18 +232,7 @@ class MassEventAggregator {
 		}, config.cooldownMs);
 	}
 
-	private endMassEvent(
-		state: ChannelMassEventState,
-		chan: Chan,
-		network: Network
-	): void {
-		if (!state.isActive) {
-			return;
-		}
-
-		log.debug(`MassEvent: ENDING for ${chan.name} (${state.buffer.length} buffered msgs)`);
-
-		// Clear timers
+	private clearTimers(state: ChannelMassEventState) {
 		if (state.cooldownTimer) {
 			clearTimeout(state.cooldownTimer);
 			state.cooldownTimer = null;
@@ -180,27 +242,49 @@ class MassEventAggregator {
 			clearTimeout(state.maxDurationTimer);
 			state.maxDurationTimer = null;
 		}
+	}
 
-		// Generate summary
-		const summary = this.generateSummary(state);
-		log.debug(`MassEvent: Summary - joins=${summary.joins} parts=${summary.parts} quits=${summary.quits}`);
+	private endMassEvent(state: ChannelMassEventState, chan: Chan, network: Network): void {
+		if (!state.isActive) {
+			return;
+		}
 
-		// Create summary message
-		const summaryMsg = new Msg({
-			type: MessageType.MASS_EVENT,
-			time: new Date(),
-			massEventSummary: summary,
-		});
+		this.clearTimers(state);
 
-		// Push summary message through normal channel
-		chan.pushMessage(this.client, summaryMsg);
+		const now = Date.now();
+		const captured = state.captured;
+		const startTime = state.firstTime ?? now;
+		const endTime = state.lastTime ?? now;
+
+		// The time range is the one of the captured messages
+		const summary: MassEventSummary = {
+			...state.counts,
+			duration: endTime - startTime,
+			startTime: new Date(startTime),
+			endTime: new Date(endTime),
+		};
+
+		log.debug(
+			`MassEvent: ENDING for ${chan.name} - joins=${summary.joins} parts=${summary.parts} quits=${summary.quits}`
+		);
 
 		// Reset state
 		state.isActive = false;
-		state.buffer = [];
-		state.preBuffer = [];
-		state.startTime = null;
+		state.counts = emptyCounts();
+		state.captured = new Set();
+		state.firstTime = null;
+		state.lastTime = null;
 		state.recentTimestamps = [];
+
+		const summaryMsg = new Msg({
+			type: MessageType.MASS_EVENT,
+			time: new Date(now),
+			massEventSummary: summary,
+		});
+		this.summaryKeys.set(summaryMsg, captured);
+
+		// Push summary message through normal channel
+		chan.pushMessage(this.client, summaryMsg);
 
 		// Refresh user list if configured
 		if (Config.values.massEventDetection.refreshNamesAfter && network.irc) {
@@ -208,79 +292,55 @@ class MassEventAggregator {
 		}
 	}
 
-	private generateSummary(state: ChannelMassEventState): MassEventSummary {
-		const now = Date.now();
-		const summary: MassEventSummary = {
-			joins: 0,
-			parts: 0,
-			quits: 0,
-			modes: 0,
-			nicks: 0,
-			kicks: 0,
-			chghosts: 0,
-			away: 0,
-			back: 0,
-			duration: now - (state.startTime || now),
-			startTime: new Date(state.startTime || now),
-			endTime: new Date(),
-		};
+	private count(counts: SummaryCounts, msg: Msg) {
+		switch (msg.type) {
+			case MessageType.JOIN:
+				counts.joins++;
+				break;
+			case MessageType.PART:
+				counts.parts++;
+				break;
+			case MessageType.QUIT:
+				counts.quits++;
+				break;
 
-		for (const {msg} of state.buffer) {
-			switch (msg.type) {
-				case MessageType.JOIN:
-					summary.joins++;
-					break;
-				case MessageType.PART:
-					summary.parts++;
-					break;
-				case MessageType.QUIT:
-					summary.quits++;
-					break;
-				case MessageType.MODE:
-					// Count individual mode changes
-					const modeText = msg.text || "";
-					const modeChanges = modeText
-						.split(" ")[0]
-						.split("")
-						.filter((c) => c !== "+" && c !== "-").length;
-					summary.modes += modeChanges || 1;
-					break;
-				case MessageType.NICK:
-					summary.nicks++;
-					break;
-				case MessageType.KICK:
-					summary.kicks++;
-					break;
-				case MessageType.CHGHOST:
-					summary.chghosts++;
-					break;
-				case MessageType.AWAY:
-					summary.away++;
-					break;
-				case MessageType.BACK:
-					summary.back++;
-					break;
+			case MessageType.MODE: {
+				// Count individual mode changes
+				const modeChanges = (msg.text || "")
+					.split(" ")[0]
+					.split("")
+					.filter((c) => c !== "+" && c !== "-").length;
+				counts.modes += modeChanges || 1;
+				break;
 			}
-		}
 
-		return summary;
+			case MessageType.NICK:
+				counts.nicks++;
+				break;
+			case MessageType.KICK:
+				counts.kicks++;
+				break;
+			case MessageType.CHGHOST:
+				counts.chghosts++;
+				break;
+			case MessageType.AWAY:
+				counts.away++;
+				break;
+			case MessageType.BACK:
+				counts.back++;
+				break;
+		}
 	}
 
 	/**
-	 * Clean up state for a channel (e.g., when leaving)
+	 * Drop the state and timers of a channel that is being removed (parted,
+	 * closed, or its network removed). Captured messages are already stored.
 	 */
 	cleanup(chanId: number): void {
 		const state = this.channelStates.get(chanId);
 
 		if (state) {
-			if (state.cooldownTimer) {
-				clearTimeout(state.cooldownTimer);
-			}
-
-			if (state.maxDurationTimer) {
-				clearTimeout(state.maxDurationTimer);
-			}
-
+			this.clearTimers(state);
 			this.channelStates.delete(chanId);
 		}
 	}

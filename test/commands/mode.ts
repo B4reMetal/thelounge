@@ -65,12 +65,18 @@ describe("Commands", function () {
 		});
 
 		function modeCommandInputCall(
-			net: NetworkWithIrcFramework,
+			net: typeof testableNetwork,
 			chan: Chan,
 			cmd: string,
 			args: string[]
 		) {
-			ModeCommand.input.call(unusedClientContext, net, chan, cmd, Array.from(args));
+			ModeCommand.input.call(
+				unusedClientContext,
+				net as unknown as NetworkWithIrcFramework,
+				chan,
+				cmd,
+				Array.from(args)
+			);
 		}
 
 		it("should not mess with the given target", function () {

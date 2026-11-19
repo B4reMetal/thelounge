@@ -380,7 +380,8 @@ describe("Network", function () {
 				ip: "newIp",
 				hostname: "newHostname",
 				uuid: "newuuid",
-			});
+				// Numbers on purpose: a browser can send any type, edit() must cope
+			} as unknown as Parameters<Network["edit"]>[1]);
 
 			expect(saveCalled).to.equal(true);
 			expect(nameEmitCalled).to.equal(true);
@@ -432,12 +433,13 @@ describe("Network", function () {
 				.to.be.an("object")
 				.that.has.all.keys(
 					"channels",
+					"trackerKey",
 					"status",
 					"nick",
 					"name",
 					"serverOptions",
 					"uuid",
-					"torrentSites"
+					"trackers"
 				);
 
 			expect(clone.status).to.be.an("object").that.has.all.keys("connected", "secure");

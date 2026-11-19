@@ -140,7 +140,7 @@
 
 					<DirectMessageSection
 						:network="network"
-						:queries="network.channels.filter(c => c.type === 'query')"
+						:queries="network.channels.filter((c) => c.type === 'query')"
 					/>
 				</div>
 			</template>

@@ -1,7 +1,6 @@
 import _ from "lodash";
 import {v4 as uuidv4} from "uuid";
 import IrcFramework, {Client as IRCClient} from "irc-framework";
-import log from "../log.js";
 import Chan, {ChanConfig, Channel} from "./chan.js";
 import Msg from "./msg.js";
 import Prefix from "./prefix.js";
@@ -13,6 +12,7 @@ import Client from "../client.js";
 import {MessageType} from "../../shared/types/msg.js";
 import {ChanType} from "../../shared/types/chan.js";
 import {SharedNetwork} from "../../shared/types/network.js";
+import {trackerNetworkKey} from "../plugins/trackerNetworks.js";
 
 type NetworkIrcOptions = {
 	host: string;
@@ -69,7 +69,7 @@ export type NetworkConfig = {
 	rejectUnauthorized: boolean;
 	password: string;
 	awayMessage: string;
-	commands: string;
+	commands: string[];
 	username: string;
 	realname: string;
 	leaveMessage: string;
@@ -515,8 +515,11 @@ class Network {
 		client.save();
 	}
 
-	destroy() {
-		this.channels.forEach((channel) => channel.destroy());
+	destroy(client: Client) {
+		this.channels.forEach((channel) => {
+			client.massEventAggregator.cleanup(channel.id);
+			channel.destroy();
+		});
 	}
 
 	setNick(this: Network, nick: string) {
@@ -546,13 +549,16 @@ class Network {
 		return {
 			uuid: this.uuid,
 			name: this.name,
+			// Stands for the host in trackers the user adds in their settings;
+			// the host itself isn't sent
+			trackerKey: trackerNetworkKey(this.host),
 			nick: this.nick,
 			serverOptions: this.serverOptions,
 			status: this.getNetworkStatus(),
 			channels: this.channels.map((channel) =>
 				channel.getFilteredClone(lastActiveChannel, lastMessage)
 			),
-			torrentSites: Config.getTorrentSitesForHost(this.host),
+			trackers: Config.getTrackersForHost(this.host),
 		};
 	}
 

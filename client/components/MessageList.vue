@@ -20,14 +20,11 @@
 		>
 			<template v-for="(message, idx) in displayedMessages" :key="getMessageKey(message)">
 				<DateMarker
-					v-if="shouldDisplayDateMarker(message, idx)"
+					v-if="shouldDisplayDateMarker(idx)"
 					:message="message as any"
 					:is-focused="isMessageFocused(message)"
 				/>
-				<div
-					v-if="shouldDisplayUnreadMarker(Number(message.id))"
-					class="unread-marker"
-				>
+				<div v-if="shouldDisplayUnreadMarker(idx)" class="unread-marker">
 					<span class="unread-marker-text" />
 				</div>
 
@@ -67,11 +64,12 @@
 <script lang="ts">
 import {condensedTypes} from "../../shared/irc";
 import {ChanType} from "../../shared/types/chan";
-import {MessageType, SharedMsg} from "../../shared/types/msg";
+import {MessageType} from "../../shared/types/msg";
 import eventbus from "../js/eventbus";
 import clipboard from "../js/clipboard";
 import socket from "../js/socket";
-import {leaveHistorySlice} from "../js/chan";
+import {cancelPendingJump, leaveHistorySlice, startPendingJump} from "../js/chan";
+import {startsNewDay, unreadMarkerIndex} from "../js/helpers/messageMarkers";
 import Message from "./Message.vue";
 import MessageCondensed from "./MessageCondensed.vue";
 import DateMarker from "./DateMarker.vue";
@@ -80,7 +78,6 @@ import {
 	defineComponent,
 	nextTick,
 	onBeforeUnmount,
-	onBeforeUpdate,
 	onMounted,
 	onUnmounted,
 	PropType,
@@ -96,9 +93,6 @@ type CondensedMessageContainer = {
 	messages: ClientMessage[];
 	id?: number;
 };
-
-// TODO: move into component
-let unreadMarkerShown = false;
 
 // Render at most this many messages - keeps DOM manageable
 const MAX_RENDERED_MESSAGES = 500;
@@ -211,18 +205,32 @@ export default defineComponent({
 
 		// Windowed messages for rendering - show MAX_RENDERED_MESSAGES from windowStartIndex
 		// This does NOT depend on scrolledToBottom to avoid reactivity issues
-		const displayedMessages = computed(() => {
-			const all = allCondensedMessages.value;
-			const total = all.length;
+		// Index in allCondensedMessages of the first rendered entry: the
+		// window start index, clamped to the valid range
+		const renderStart = computed(() => {
+			const total = allCondensedMessages.value.length;
 
 			if (total <= MAX_RENDERED_MESSAGES) {
+				return 0;
+			}
+
+			return Math.max(0, Math.min(windowStartIndex.value, total - MAX_RENDERED_MESSAGES));
+		});
+
+		const displayedMessages = computed(() => {
+			const all = allCondensedMessages.value;
+
+			if (all.length <= MAX_RENDERED_MESSAGES) {
 				return all;
 			}
 
-			// Use the window start index, clamped to valid range
-			const start = Math.max(0, Math.min(windowStartIndex.value, total - MAX_RENDERED_MESSAGES));
-			return all.slice(start, start + MAX_RENDERED_MESSAGES);
+			return all.slice(renderStart.value, renderStart.value + MAX_RENDERED_MESSAGES);
 		});
+
+		// Index in allCondensedMessages of the entry the unread marker goes in front of
+		const unreadIndex = computed(() =>
+			unreadMarkerIndex(allCondensedMessages.value, props.channel.firstUnread)
+		);
 
 		// Check if we can scroll further back in the window (not at start of all messages)
 		const canScrollBack = computed(() => {
@@ -232,8 +240,10 @@ export default defineComponent({
 		// Check if we're showing the latest messages
 		const isAtEnd = computed(() => {
 			const total = allCondensedMessages.value.length;
-			return total <= MAX_RENDERED_MESSAGES ||
-				windowStartIndex.value >= total - MAX_RENDERED_MESSAGES;
+			return (
+				total <= MAX_RENDERED_MESSAGES ||
+				windowStartIndex.value >= total - MAX_RENDERED_MESSAGES
+			);
 		});
 
 		// Should we show the "load more" button?
@@ -274,15 +284,19 @@ export default defineComponent({
 			}
 		};
 
-		const timeOf = (message: {time: Date | string | number}) => new Date(message.time).getTime();
+		const timeOf = (message: {time: Date | string | number}) =>
+			new Date(message.time).getTime();
 
-		const requestHistory = (lastId: number) => {
+		// `last` is the oldest message the client holds in this channel,
+		// nothing to ask for the newest page
+		const requestHistory = (last?: {id: number; time: Date | string | number}) => {
 			const oldest = props.channel.messages[0];
 
 			props.channel.historyLoading = true;
 			socket.emit("more", {
 				target: props.channel.id,
-				lastId,
+				lastId: last ? last.id : -1,
+				lastTime: last ? timeOf(last) : undefined,
 				condensed: store.state.settings.statusMessages !== "shown",
 				// Lets the server keep paging from storage once this
 				// message is no longer in its memory
@@ -293,6 +307,7 @@ export default defineComponent({
 		// Jump to the absolute bottom (latest messages) and mark as at bottom
 		const jumpToBottom = async () => {
 			stopHolding?.();
+			cancelPendingJump(props.channel.id);
 			pendingJump = null;
 			jumping.value = false;
 			props.channel.scrolledToBottom = true;
@@ -303,7 +318,7 @@ export default defineComponent({
 				// itself once they arrive.
 				leaveHistorySlice(props.channel);
 				windowStartIndex.value = 0;
-				requestHistory(-1);
+				requestHistory();
 				return;
 			}
 
@@ -315,37 +330,65 @@ export default defineComponent({
 			isAdjustingWindow.value = false;
 		};
 
+		// Runs `change` (which moves the rendered window or the messages in
+		// it) and keeps the entry at the top of the view where it was on
+		// screen. The rendered window has a fixed size, so the height of
+		// the list says nothing about how far its content moved.
+		const keepViewInPlace = async (change: () => void) => {
+			const el = chat.value;
+
+			if (!el) {
+				change();
+				return;
+			}
+
+			const viewTop = el.getBoundingClientRect().top;
+			const rows = el.querySelectorAll<HTMLElement>(".messages > .msg");
+			let anchor: HTMLElement | null = null;
+
+			for (const row of rows) {
+				if (row.getBoundingClientRect().bottom > viewTop) {
+					anchor = row;
+					break;
+				}
+			}
+
+			const anchorTop = anchor?.getBoundingClientRect().top ?? 0;
+			const oldScrollTop = el.scrollTop;
+			const oldScrollHeight = el.scrollHeight;
+
+			isAdjustingWindow.value = true;
+			change();
+			await nextTick();
+
+			isScrolling.value = true;
+
+			if (anchor?.isConnected) {
+				el.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
+			} else {
+				el.scrollTop = oldScrollTop + el.scrollHeight - oldScrollHeight;
+			}
+
+			setTimeout(() => {
+				isScrolling.value = false;
+				isAdjustingWindow.value = false;
+
+				// At the very edge no scroll event comes to move the window
+				// further, check right away
+				syncScrollState();
+			}, 50);
+		};
+
 		// Shift window up (show older messages) while preserving scroll position
 		const shiftWindowUp = async (amount: number = 100) => {
 			if (isAdjustingWindow.value || windowStartIndex.value <= 0) return;
 
-			const el = chat.value;
-			if (!el) return;
-
-			isAdjustingWindow.value = true;
-			const oldScrollHeight = el.scrollHeight;
-			const oldScrollTop = el.scrollTop;
-
-			// Shift window up
 			const newStart = Math.max(0, windowStartIndex.value - amount);
-			const actualShift = windowStartIndex.value - newStart;
 
-			if (actualShift === 0) {
-				isAdjustingWindow.value = false;
-				return;
-			}
-
-			windowStartIndex.value = newStart;
-			props.channel.scrolledToBottom = false;
-
-			await nextTick();
-
-			// Restore scroll position relative to the content that was visible
-			const newScrollHeight = el.scrollHeight;
-			const heightDiff = newScrollHeight - oldScrollHeight;
-			el.scrollTop = oldScrollTop + heightDiff;
-
-			isAdjustingWindow.value = false;
+			await keepViewInPlace(() => {
+				windowStartIndex.value = newStart;
+				props.channel.scrolledToBottom = false;
+			});
 		};
 
 		// Shift window down (show newer messages) while preserving scroll position
@@ -356,30 +399,11 @@ export default defineComponent({
 			const maxStart = Math.max(0, total - MAX_RENDERED_MESSAGES);
 			if (windowStartIndex.value >= maxStart) return;
 
-			const el = chat.value;
-			if (!el) return;
-
-			isAdjustingWindow.value = true;
-			const oldScrollHeight = el.scrollHeight;
-			const oldScrollTop = el.scrollTop;
-
-			// Shift window down
 			const newStart = Math.min(maxStart, windowStartIndex.value + amount);
-			windowStartIndex.value = newStart;
 
-			// Check if we're now at the end
-			if (newStart >= maxStart) {
-				props.channel.scrolledToBottom = true;
-			}
-
-			await nextTick();
-
-			// Restore scroll position relative to the content that was visible
-			const newScrollHeight = el.scrollHeight;
-			const heightDiff = oldScrollHeight - newScrollHeight;
-			el.scrollTop = oldScrollTop - heightDiff;
-
-			isAdjustingWindow.value = false;
+			await keepViewInPlace(() => {
+				windowStartIndex.value = newStart;
+			});
 		};
 
 		// Index, in the full list, of the entry that holds the jump target.
@@ -487,6 +511,7 @@ export default defineComponent({
 		// it), and the jump is finished when that arrives.
 		const jumpTo = async (target: JumpTarget, mayFetch = true): Promise<boolean> => {
 			stopHolding?.();
+			cancelPendingJump(props.channel.id);
 			pendingJump = null;
 			jumping.value = true;
 			props.channel.scrolledToBottom = false;
@@ -496,7 +521,13 @@ export default defineComponent({
 			if (index === -1) {
 				if (mayFetch && target.time !== null && store.state.isConnected) {
 					pendingJump = target;
-					props.channel.historyLoading = true;
+					// Given up on timeout or disconnect
+					startPendingJump(props.channel, target.time, () => {
+						if (pendingJump === target) {
+							pendingJump = null;
+							jumping.value = false;
+						}
+					});
 					socket.emit("messages:around", {target: props.channel.id, time: target.time});
 				} else {
 					jumping.value = false;
@@ -606,16 +637,7 @@ export default defineComponent({
 		const onShowMoreClick = () => {
 			if (!store.state.isConnected) return;
 
-			let lastMessage = -1;
-
-			for (const message of props.channel.messages) {
-				if (!message.showInActive) {
-					lastMessage = message.id;
-					break;
-				}
-			}
-
-			requestHistory(lastMessage);
+			requestHistory(props.channel.messages.find((message) => !message.showInActive));
 		};
 
 		// Extend a slice of old history towards the present
@@ -633,32 +655,13 @@ export default defineComponent({
 			socket.emit("messages:after", {target: props.channel.id, afterTime: timeOf(newest)});
 		};
 
-		const shouldDisplayDateMarker = (
-			message: SharedMsg | CondensedMessageContainer,
-			idx: number
-		) => {
-			const previousMessage = displayedMessages.value[idx - 1];
+		// `idx` is the index among the rendered entries; markers depend on the
+		// entry before it in the full list, which may not be rendered
+		const shouldDisplayDateMarker = (idx: number) =>
+			startsNewDay(allCondensedMessages.value, renderStart.value + idx);
 
-			if (!previousMessage) return true;
-
-			const oldDate = new Date(previousMessage.time);
-			const newDate = new Date(message.time);
-
-			return (
-				oldDate.getDate() !== newDate.getDate() ||
-				oldDate.getMonth() !== newDate.getMonth() ||
-				oldDate.getFullYear() !== newDate.getFullYear()
-			);
-		};
-
-		const shouldDisplayUnreadMarker = (id: number) => {
-			if (!unreadMarkerShown && id > props.channel.firstUnread) {
-				unreadMarkerShown = true;
-				return true;
-			}
-
-			return false;
-		};
+		const shouldDisplayUnreadMarker = (idx: number) =>
+			renderStart.value + idx === unreadIndex.value;
 
 		const isPreviousSource = (currentMessage: ClientMessage, idx: number) => {
 			const previousMessage = displayedMessages.value[idx - 1];
@@ -678,25 +681,21 @@ export default defineComponent({
 			}
 		};
 
+		// Called when something in the list changes height: a link preview
+		// loading or being toggled, a group of status messages expanding, the
+		// input growing. Only the bottom has to be held on to; a change above
+		// the view is compensated by the browser's scroll anchoring, and one
+		// below it doesn't move what is being read.
 		const keepScrollPosition = async () => {
-			if (props.channel.scrolledToBottom) {
-				await jumpToBottom();
+			if (!props.channel.scrolledToBottom) {
 				return;
 			}
 
-			const el = chat.value;
-			if (!el) return;
-
-			// Maintain relative scroll position
-			isAdjustingWindow.value = true;
-			const scrollBottom = el.scrollHeight - el.scrollTop;
 			await nextTick();
-			isScrolling.value = true;
-			el.scrollTop = el.scrollHeight - scrollBottom;
-			setTimeout(() => {
-				isScrolling.value = false;
-				isAdjustingWindow.value = false;
-			}, 50);
+
+			if (props.channel.scrolledToBottom) {
+				scrollToBottom();
+			}
 		};
 
 		const onLinkPreviewToggle = async (preview: ClientLinkPreview, message: ClientMessage) => {
@@ -777,8 +776,10 @@ export default defineComponent({
 		// Channel switch - scroll to bottom and reset window
 		watch(
 			() => props.channel.id,
-			async () => {
+			async (_id, oldId) => {
 				stopHolding?.();
+				// Its answer must not land in the channel that was left
+				cancelPendingJump(oldId);
 				pendingJump = null;
 				focusedKey.value = null;
 
@@ -801,57 +802,62 @@ export default defineComponent({
 			}
 		);
 
-		// Track the first message ID to detect when history is loaded
-		const firstMessageId = computed(() => {
-			const msgs = props.channel.messages;
-			return msgs.length > 0 ? msgs[0].id : null;
-		});
-
-		// When history is loaded (messages prepended), adjust window to maintain position
+		// Messages were added in front (older history) or dropped from the
+		// front (the client trims what it holds in memory)
 		watch(
-			firstMessageId,
-			async (newFirstId, oldFirstId) => {
-				if (oldFirstId === null || newFirstId === null) return;
-				if (newFirstId === oldFirstId) return;
+			() => ({
+				chanId: props.channel.id,
+				first: props.channel.messages[0] as ClientMessage | undefined,
+			}),
+			async (now, before) => {
+				if (
+					now.chanId !== before.chanId ||
+					!now.first ||
+					!before.first ||
+					now.first === before.first
+				) {
+					return;
+				}
 
 				// A jump puts the view where it belongs by itself
 				if (jumping.value) return;
 
-				// History was loaded - messages were prepended
-				// Adjust windowStartIndex to keep the same messages visible
-				const el = chat.value;
-				if (!el) return;
-
-				isAdjustingWindow.value = true;
-				const oldScrollTop = el.scrollTop;
-				const oldScrollHeight = el.scrollHeight;
-
-				// The window start needs to shift by the number of new messages
-				// to keep viewing the same content
-				const total = allCondensedMessages.value.length;
-				const maxStart = Math.max(0, total - MAX_RENDERED_MESSAGES);
-
-				// If we were viewing the oldest loaded messages, keep the window at 0
-				// so the user can see the newly loaded history
-				if (windowStartIndex.value === 0) {
-					// Don't shift - let user see new history
-				} else {
-					// Shift the window to compensate for new messages
-					windowStartIndex.value = Math.min(maxStart, windowStartIndex.value);
+				if (props.channel.scrolledToBottom) {
+					// Stay with the newest messages, as when they are added
+					windowStartIndex.value = Math.max(
+						0,
+						allCondensedMessages.value.length - MAX_RENDERED_MESSAGES
+					);
+					await nextTick();
+					scrollToBottom();
+					return;
 				}
 
-				await nextTick();
+				const all = allCondensedMessages.value;
+				const maxStart = Math.max(0, all.length - MAX_RENDERED_MESSAGES);
 
-				// Restore scroll position
-				const newScrollHeight = el.scrollHeight;
-				const heightDiff = newScrollHeight - oldScrollHeight;
-				isScrolling.value = true;
-				el.scrollTop = oldScrollTop + heightDiff;
+				// Keep rendering the same entries: they moved down by the
+				// number of entries made up only of the messages added in front
+				const addedCount = props.channel.messages.indexOf(before.first);
+				let shift = 0;
 
-				setTimeout(() => {
-					isScrolling.value = false;
-					isAdjustingWindow.value = false;
-				}, 50);
+				if (addedCount > 0) {
+					const added = new Set(props.channel.messages.slice(0, addedCount));
+
+					for (const entry of all) {
+						const last =
+							entry.type === "condensed"
+								? entry.messages[entry.messages.length - 1]
+								: entry;
+
+						if (!added.has(last)) break;
+						shift++;
+					}
+				}
+
+				await keepViewInPlace(() => {
+					windowStartIndex.value = Math.min(maxStart, windowStartIndex.value + shift);
+				});
 			}
 		);
 
@@ -866,10 +872,20 @@ export default defineComponent({
 					await nextTick();
 					scrollToBottom();
 				} else if (oldLen !== undefined && newLen > oldLen) {
-					// Messages were added (likely at the end) but we're not at bottom
-					// Don't change window or scroll - user is reading history
+					// Messages were added at the end while the user reads older
+					// ones: leave the view alone, but if it is at the end of the
+					// rendered window ("show newer" in a history slice) extend
+					// the window, as no scroll event may come to do it
+					await nextTick();
+					syncScrollState();
 				}
 			}
+		);
+
+		// Keep the newest message in view while the input grows with what is typed
+		watch(
+			() => props.channel.pendingMessage,
+			() => keepScrollPosition()
 		);
 
 		// Jump to the message the route points at (from search results or mentions)
@@ -885,12 +901,9 @@ export default defineComponent({
 			}
 		);
 
-		onBeforeUpdate(() => {
-			unreadMarkerShown = false;
-		});
-
 		onBeforeUnmount(() => {
 			stopHolding?.();
+			cancelPendingJump(props.channel.id);
 			eventbus.off("resize", handleResize);
 			eventbus.off("messages:around", onMessagesAround);
 			chat.value?.removeEventListener("scroll", handleScroll);

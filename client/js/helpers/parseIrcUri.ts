@@ -51,7 +51,8 @@ export default (stringUri: string) => {
 		// We don't split channels or append # here because the connect window takes care of that
 		data.join = channel;
 	} catch {
-		// do nothing on invalid uri
+		// An invalid uri prefills nothing, rather than blank fields
+		return {};
 	}
 
 	return data;

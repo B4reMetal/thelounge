@@ -11,6 +11,7 @@ import Msg from "./models/msg.js";
 import Config from "./config.js";
 import {condensedTypes} from "../shared/irc.js";
 import {migrateRenamedSettings} from "../shared/settings.js";
+import {messageKey} from "../shared/messageKey.js";
 import {MessageType} from "../shared/types/msg.js";
 import {SharedMention} from "../shared/types/mention.js";
 
@@ -31,6 +32,7 @@ import {SharedChan, ChanType} from "../shared/types/chan.js";
 import {SharedNetwork} from "../shared/types/network.js";
 import {ServerToClientEvents} from "../shared/types/socket-events.js";
 import MassEventAggregator from "./plugins/massEventAggregator.js";
+import UserIdentLookup from "./plugins/userIdentLookup.js";
 
 const events = [
 	"away",
@@ -112,6 +114,7 @@ class Client {
 	highlightExceptionRegex!: RegExp | null;
 	messageProvider?: SqliteMessageStorage;
 	massEventAggregator!: MassEventAggregator;
+	userIdentLookup = new UserIdentLookup();
 
 	fileHash!: string;
 	// Whether settings saved under an old name were moved to the new one on
@@ -599,7 +602,13 @@ class Client {
 		);
 	}
 
-	async more(data: {target: number; lastId: number; condensed: boolean; beforeTime?: number}) {
+	async more(data: {
+		target: number;
+		lastId: number;
+		lastTime?: number;
+		condensed: boolean;
+		beforeTime?: number;
+	}) {
 		const target = this.find(data.target);
 
 		if (!target) {
@@ -611,14 +620,21 @@ class Client {
 		let index = 0;
 		let hasMore = false;
 
-		// Batch sizes for "more" requests depend on the enableEnhancedSearch setting
 		const {batchSize, maxBatchSize} = this.historyBatchSizes();
 
 		// If client requests -1, send last batch of messages
 		if (data.lastId < 0) {
 			index = chan.messages.length;
 		} else {
-			index = chan.messages.findIndex((val) => val.id === data.lastId);
+			// Ids repeat across a channel's history, so the time the client
+			// sends along tells which message it means. Clients that don't
+			// send one are matched by id alone, as before.
+			index = chan.messages.findIndex(
+				(val) =>
+					val.id === data.lastId &&
+					(typeof data.lastTime !== "number" ||
+						new Date(val.time).getTime() === data.lastTime)
+			);
 		}
 
 		// If requested id is not found, an empty array will be sent
@@ -698,39 +714,50 @@ class Client {
 			return {messages: [], hasMore: older.length > 0};
 		}
 
-		// Rows sharing the anchor's millisecond come back too and are dropped
-		// below, so leave room for them
-		const limit = wanted + 50;
-		const rows = await provider.getMessagesBefore(
-			network.uuid,
-			chan.name,
-			anchor,
-			limit,
-			true
-		);
+		const known = new Set(chan.messages.map(messageKey));
+		const covered = this.massEventAggregator.coveredByMassEvent(chan);
+		const isFresh = (m: Msg) => !known.has(messageKey(m)) && !covered(m);
 
-		const known = new Set(chan.messages.map((m) => m.id));
-		const fresh = rows.filter((m) => !known.has(m.id));
+		// Rows sharing the anchor's millisecond: the client may hold only
+		// some of them, and drops the ones it has by id and time. They are
+		// read apart from the page itself, as they don't move paging on.
+		const atAnchor = (
+			await provider.getMessagesBefore(network.uuid, chan.name, anchor, 500, true)
+		).filter((m) => new Date(m.time).getTime() === anchor && isFresh(m));
+
+		// The page: up to `wanted` rows strictly older than the anchor. A read
+		// with nothing in it to send (rows of a mass event that is shown as
+		// its summary) is stepped over, so paging doesn't end there.
+		let before = anchor;
+		let older: Msg[] = [];
+		let full = false;
+
+		for (let reads = 0; reads < 20; reads++) {
+			const rows = await provider.getMessagesBefore(network.uuid, chan.name, before, wanted);
+
+			full = rows.length >= wanted;
+			older = rows.filter(isFresh);
+
+			if (older.length > 0 || !full) {
+				break;
+			}
+
+			before = new Date(rows[0].time).getTime();
+		}
 
 		return {
-			messages: fresh,
-			// A full read means storage has more. Requiring something new
-			// keeps a client from asking for the same page forever.
-			hasMore: rows.length >= limit && fresh.length > 0,
+			messages: older.concat(atAnchor),
+			// A full read means storage may have more. Requiring something
+			// older keeps a client from asking for the same page forever.
+			hasMore: full && older.length > 0,
 		};
 	}
 
+	// A page of history holds this many visible messages. When status
+	// messages are condensed or hidden on the client they don't count,
+	// up to maxBatchSize messages in total.
 	private historyBatchSizes() {
-		const enhancedSearch = Boolean(
-			this.config.clientSettings.searchEnabled &&
-				this.config.clientSettings.enableEnhancedSearch
-		);
-
-		// When enableEnhancedSearch = true send upto 10000 messages at a time
-		return {
-			batchSize: enhancedSearch ? 1000 : 100,
-			maxBatchSize: enhancedSearch ? 10000 : 1000,
-		};
+		return {batchSize: 100, maxBatchSize: 1000};
 	}
 
 	clearHistory(data) {
@@ -788,7 +815,8 @@ class Client {
 				200
 			);
 
-			return {chan: target.chan.id, ...around};
+			// The time tells the client which jump this answers
+			return {chan: target.chan.id, time: data.time, ...around};
 		} catch (err) {
 			log.error("Failed to get messages around time:", String(err));
 			return null;
@@ -917,6 +945,7 @@ class Client {
 	part(network: Network, chan: Chan) {
 		network.channels = _.without(network.channels, chan);
 		this.mentions = this.mentions.filter((msg) => !(msg.chanId === chan.id));
+		this.massEventAggregator.cleanup(chan.id);
 		chan.destroy();
 		this.save();
 		this.emit("part", {
@@ -942,9 +971,11 @@ class Client {
 			}
 		}
 
+		this.userIdentLookup.clear();
+
 		this.networks.forEach((network) => {
 			network.quit();
-			network.destroy();
+			network.destroy(this);
 		});
 
 		for (const messageStorage of this.messageStorage) {

@@ -11,11 +11,12 @@ import log from "./log.js";
 import Helper from "./helper.js";
 import Utils from "./command-line/utils.js";
 import Network from "./models/network.js";
-import type {
-	DefaultTorrentSiteInfo,
-	TorrentSite,
-	TorrentSiteInfo,
+import {
+	type LegacyTorrentSite,
+	type TrackerConfig,
+	type TrackerInfo,
 } from "../shared/types/network.js";
+import {isUsableProfileUrl, trackerNickPlaceholder} from "../shared/trackers.js";
 
 export type WebIRC = {
 	[key: string]: unknown;
@@ -123,8 +124,7 @@ export type ConfigType = {
 	massEventDetection: MassEventDetection;
 	useHexIp: boolean;
 	webirc?: WebIRC;
-	defaultTorrentSiteInfo: DefaultTorrentSiteInfo;
-	torrentSites: TorrentSite[] | null;
+	trackers: Record<string, TrackerConfig | null> | null;
 	identd: Identd;
 	oidentd?: string;
 	ldap: Ldap;
@@ -139,44 +139,48 @@ class Config {
 	#homePath = "";
 
 	/**
-	 * Trackers configured for an IRC server host (case-insensitive), with
-	 * defaults applied and profileUrl made absolute. Disabled sites are skipped.
+	 * The trackers whose users chat on an IRC server host (case-insensitive),
+	 * in the shape the client gets them. Disabled and incomplete entries are
+	 * skipped, and a profile address that can't be used is left out.
 	 */
-	getTorrentSitesForHost(host: string | undefined): TorrentSiteInfo[] | undefined {
-		const sites = this.values.torrentSites;
+	getTrackersForHost(host: string | undefined): TrackerInfo[] | undefined {
+		const trackers = this.values.trackers;
 
-		if (!host || !Array.isArray(sites)) {
+		if (!host || !_.isPlainObject(trackers)) {
 			return undefined;
 		}
 
 		const wantedHost = host.toLowerCase();
-		const defaultPath = this.values.defaultTorrentSiteInfo?.profileUrl ?? "/users/";
-		const result: TorrentSiteInfo[] = [];
+		const result: TrackerInfo[] = [];
 
-		for (const site of sites) {
+		for (const [id, tracker] of Object.entries(trackers!)) {
 			if (
-				!site ||
-				site.disabled ||
-				typeof site.host !== "string" ||
-				typeof site.domain !== "string" ||
-				site.host.toLowerCase() !== wantedHost
+				!_.isPlainObject(tracker) ||
+				tracker!.disabled ||
+				typeof tracker!.network !== "string" ||
+				tracker!.network.toLowerCase() !== wantedHost
 			) {
 				continue;
 			}
 
-			let profilePath = site.profileUrl ?? defaultPath;
+			const info: TrackerInfo = {
+				id,
+				name: typeof tracker!.name === "string" ? tracker!.name : id,
+			};
 
-			if (!profilePath.startsWith("/")) {
-				profilePath = "/" + profilePath;
+			if (Array.isArray(tracker!.channels) && tracker!.channels.length > 0) {
+				info.channels = tracker!.channels.filter((c) => typeof c === "string");
 			}
 
-			result.push({
-				abbreviation: site.abbreviation,
-				name: site.name,
-				domain: site.domain,
-				channels: Array.isArray(site.channels) ? site.channels : undefined,
-				profileUrl: `https://${site.domain}${profilePath}`,
-			});
+			if (isUsableProfileUrl(tracker!.profileUrl)) {
+				info.profileUrl = tracker!.profileUrl;
+
+				if (typeof tracker!.userHost === "string" && tracker!.userHost) {
+					info.userHost = tracker!.userHost;
+				}
+			}
+
+			result.push(info);
 		}
 
 		return result.length > 0 ? result : undefined;
@@ -233,7 +237,86 @@ class Config {
 	}
 
 	merge(newConfig: ConfigType) {
-		this._merge_config_objects(this.values, newConfig);
+		this._merge_config_objects(this.values, this._convert_legacy_trackers(newConfig));
+	}
+
+	/**
+	 * Configs written before `trackers` existed list them in `torrentSites`.
+	 * Such a list replaced the defaults, and still does: it is turned into
+	 * `trackers` entries that take the place of the built-in ones. Anything
+	 * the config sets in `trackers` itself is then merged on top.
+	 */
+	_convert_legacy_trackers(newConfig: ConfigType): ConfigType {
+		const legacy = newConfig as ConfigType & {
+			torrentSites?: LegacyTorrentSite[] | null;
+			defaultTorrentSiteInfo?: {profileUrl?: string};
+		};
+
+		// No config at all when The Lounge is started without `-c` options
+		if (!legacy || (!("torrentSites" in legacy) && !("defaultTorrentSiteInfo" in legacy))) {
+			return newConfig;
+		}
+
+		const {torrentSites, defaultTorrentSiteInfo, ...rest} = legacy;
+		const config = rest as ConfigType;
+
+		if (torrentSites === undefined) {
+			// Only the default profile path was set, which the built-in
+			// entries no longer take
+			log.warn(
+				`"${colors.bold("defaultTorrentSiteInfo")}" is no longer used, set "profileUrl" on entries in "${colors.bold("trackers")}" instead.`
+			);
+			return config;
+		}
+
+		log.warn(
+			`"${colors.bold("torrentSites")}" is now "${colors.bold("trackers")}", see the default config for its format. Your list is still used, for now.`
+		);
+
+		if (!Array.isArray(torrentSites)) {
+			this.values.trackers = null;
+			return config;
+		}
+
+		let defaultPath = defaultTorrentSiteInfo?.profileUrl;
+
+		if (typeof defaultPath !== "string") {
+			defaultPath = "/users/";
+		}
+
+		const converted: Record<string, TrackerConfig | null> = {};
+
+		for (const site of torrentSites) {
+			if (!site || typeof site.abbreviation !== "string" || typeof site.host !== "string") {
+				continue;
+			}
+
+			const tracker: TrackerConfig = {name: site.name, network: site.host};
+
+			if (Array.isArray(site.channels)) {
+				tracker.channels = site.channels;
+			}
+
+			if (site.disabled) {
+				tracker.disabled = true;
+			}
+
+			if (site.profileLink !== false && typeof site.domain === "string") {
+				let profilePath = site.profileUrl ?? defaultPath;
+
+				if (!profilePath.startsWith("/")) {
+					profilePath = "/" + profilePath;
+				}
+
+				tracker.profileUrl = `https://${site.domain}${profilePath}${trackerNickPlaceholder}`;
+			}
+
+			converted[site.abbreviation] = tracker;
+		}
+
+		this.values.trackers = converted;
+
+		return config;
 	}
 
 	_merge_config_objects(oldConfig: ConfigType, newConfig: ConfigType) {

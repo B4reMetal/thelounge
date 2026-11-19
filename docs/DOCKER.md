@@ -5,14 +5,31 @@ one folder, `/var/opt/thelounge`, and serves on port 9000. By default it runs
 as uid:gid `1000:1000`, like the official image, so a data folder from that
 image can be mounted as is.
 
+## Image tags
+
+Versions read year, feature release, fix: `2026.12.1` is the 12th feature
+release of 2026 with one fix on top. The middle number goes up when a release
+adds features or changes how messages are stored; the last one goes up for
+fixes, dependency updates and base-image security rebuilds.
+
+| Tag         | Use it to                                                        |
+| ----------- | ---------------------------------------------------------------- |
+| `latest`    | Follow every release                                             |
+| `2026.12`   | Get fixes and security rebuilds of that release, no new features |
+| `2026.12.1` | Stay on exactly that release until you change it                 |
+| `edge`      | Run the newest unreleased changes from `master`                  |
+
+Back up your data before moving to a new feature release: the release notes
+say when it changes message storage. More in [RELEASING.md](RELEASING.md).
+
 ## Environment variables
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `PUID` | `1000` | User id The Lounge runs as. |
-| `PGID` | `1000` | Group id The Lounge runs as. |
-| `UMASK` | unset | Octal umask for the files The Lounge creates, such as `002`. |
-| `THELOUNGE_HOME` | `/var/opt/thelounge` | Data folder inside the container. |
+| Variable         | Default              | Meaning                                                      |
+| ---------------- | -------------------- | ------------------------------------------------------------ |
+| `PUID`           | `1000`               | User id The Lounge runs as.                                  |
+| `PGID`           | `1000`               | Group id The Lounge runs as.                                 |
+| `UMASK`          | unset                | Octal umask for the files The Lounge creates, such as `002`. |
+| `THELOUNGE_HOME` | `/var/opt/thelounge` | Data folder inside the container.                            |
 
 `PUID` and `PGID` can be any numbers; they need no matching user in the image.
 They only apply when the container starts as root, which it does unless you
@@ -67,7 +84,7 @@ services:
   thelounge:
     image: ghcr.io/fhori/thelounge:latest
     environment:
-      - PUID=1000          # same values as before; 911 if you never set them
+      - PUID=1000 # same values as before; 911 if you never set them
       - PGID=1000
       - THELOUNGE_HOME=/config
       - TZ=Etc/UTC
@@ -106,7 +123,7 @@ is the variant for locked-down setups:
 services:
   thelounge:
     image: ghcr.io/fhori/thelounge:latest
-    user: "1000:1000"      # owner of ./thelounge
+    user: "1000:1000" # owner of ./thelounge
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]

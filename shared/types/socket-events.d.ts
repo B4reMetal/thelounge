@@ -52,6 +52,13 @@ interface ServerToClientEvents {
 
 	"mute:changed": EventHandler<{target: number; status: boolean}>;
 	"pin:changed": EventHandler<{target: number; status: boolean}>;
+	// Answer to "tracker:user". Without ident and hostname if they couldn't be found out
+	"tracker:user": EventHandler<{
+		target: number;
+		nick: string;
+		ident?: string;
+		hostname?: string;
+	}>;
 
 	names: EventHandler<{id: number; users: SharedUser[]}>;
 
@@ -88,6 +95,8 @@ interface ServerToClientEvents {
 
 	"messages:around": EventHandler<{
 		chan: number;
+		// The time that was asked for
+		time?: number;
 		messages: SharedMsg[];
 		hasMoreBefore: boolean;
 		hasMoreAfter: boolean;
@@ -150,6 +159,7 @@ interface ClientToServerEvents {
 
 	"mute:change": EventHandler<{target: number; setMutedTo: boolean}>;
 	"pin:change": EventHandler<{target: number; setPinnedTo: boolean}>;
+	"tracker:user": EventHandler<{target: number; nick: string}>;
 
 	"push:register": EventHandler<PushSubscriptionJSON>;
 	"push:unregister": NoPayloadEventHandler;
@@ -172,6 +182,9 @@ interface ClientToServerEvents {
 	more: EventHandler<{
 		target: number;
 		lastId: number;
+		// Time of the message `lastId` refers to. Ids are not unique across
+		// a channel's history, id and time together are
+		lastTime?: number;
 		condensed: boolean;
 		// Time of the oldest message the client holds, used to page from
 		// storage once the server no longer has that message in memory

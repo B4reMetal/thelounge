@@ -39,6 +39,7 @@ import {
 	ConfigNetDefaults,
 	LockedConfigNetDefaults,
 } from "../shared/types/config.js";
+import {userTrackerLimits, userTrackersSetting} from "../shared/trackers.js";
 
 type ServerOptions = {
 	dev: boolean;
@@ -200,9 +201,10 @@ export default async function (
 	let sockets: Server | null = null;
 	let identd: Identification | null = null;
 
-	return new Promise<ServerInstance>((resolve) => {
+	return new Promise<ServerInstance>((resolve, reject) => {
 		server.listen(listenParams, () => {
-			void (async () => {
+			// Fail start-up instead of hanging when anything below throws
+			(async () => {
 				if (typeof listenParams === "string") {
 					log.info("Available on socket " + colors.green(listenParams));
 				} else {
@@ -371,7 +373,7 @@ export default async function (
 					io: sockets,
 					stop,
 				});
-			})();
+			})().catch(reject);
 		});
 	});
 }
@@ -527,6 +529,11 @@ function initializeClient(
 				return;
 			}
 
+			// Pins lastId to one message, as ids can repeat across restarts
+			if (data.lastTime !== undefined && !Number.isFinite(data.lastTime)) {
+				delete data.lastTime;
+			}
+
 			// Only used as a time anchor for stored history
 			if (data.beforeTime !== undefined && !Number.isFinite(data.beforeTime)) {
 				delete data.beforeTime;
@@ -550,6 +557,7 @@ function initializeClient(
 				"messages:around",
 				result || {
 					chan: data.target,
+					time: Number.isFinite(data.time) ? data.time : undefined,
 					messages: [],
 					hasMoreBefore: false,
 					hasMoreAfter: false,
@@ -764,6 +772,28 @@ function initializeClient(
 		client.mentions = [];
 	});
 
+	// Ident and hostname of a user, for a tracker profile link that needs
+	// them. Always answers, so a client waiting on it doesn't wait forever.
+	socket.on("tracker:user", (data) => {
+		if (!_.isPlainObject(data) || typeof data.nick !== "string") {
+			return;
+		}
+
+		const {target, nick} = data;
+		const networkAndChan = client.find(target);
+		// Answered on any of the user's networks: a tracker they added in
+		// their settings may need it, and it tells them nothing a /whois
+		// wouldn't. The lookup itself only takes nick-like input and a few
+		// requests at a time.
+		const lookup = networkAndChan
+			? client.userIdentLookup.lookup(networkAndChan.network, nick)
+			: Promise.resolve(null);
+
+		void lookup.then((user) => {
+			socket.emit("tracker:user", {target, nick, ...(user ?? {})});
+		});
+	});
+
 	if (!Config.values.public) {
 		socket.on("push:register", (subscription) => {
 			if (!Object.prototype.hasOwnProperty.call(client.config.sessions, token)) {
@@ -821,6 +851,15 @@ function initializeClient(
 				typeof newSetting.value === "object" ||
 				typeof newSetting.name !== "string" ||
 				newSetting.name[0] === "_"
+			) {
+				return;
+			}
+
+			// Kept small, it is sent to every client of the user and saved with them
+			if (
+				newSetting.name === userTrackersSetting &&
+				(typeof newSetting.value !== "string" ||
+					newSetting.value.length > userTrackerLimits.storedLength)
 			) {
 				return;
 			}

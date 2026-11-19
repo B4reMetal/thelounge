@@ -3,6 +3,7 @@ import {ClientChan, ClientMessage} from "./types";
 import {SharedNetworkChan} from "../../shared/types/network";
 import {SharedMsg, MessageType} from "../../shared/types/msg";
 import {ChanType} from "../../shared/types/chan";
+import {messageKey} from "../../shared/messageKey";
 
 /**
  * Opts a message out of Vue's deep reactivity. Call this on every message
@@ -35,18 +36,18 @@ export function markMsgsRaw<T extends SharedMsg>(msgs: T[]): T[] {
  *
  * History can reach the client twice (a page it asked for and the page the
  * server sends when it first reads a channel from storage), so everything is
- * matched by id. Prepending happens in slices because `unshift(...items)`
+ * matched by id and time (see messageKey). Prepending happens in slices because `unshift(...items)`
  * throws once `items` is larger than the engine's argument limit, which is
  * as low as 65k in some browsers.
  */
 export function prependMessages(channel: ClientChan, incoming: SharedMsg[]): number {
-	const known = new Set<number>();
+	const known = new Set<string>();
 
 	for (const message of channel.messages) {
-		known.add(message.id);
+		known.add(messageKey(message));
 	}
 
-	const fresh = markMsgsRaw(incoming.filter((m) => !known.has(m.id)));
+	const fresh = markMsgsRaw(incoming.filter((m) => !known.has(messageKey(m))));
 	const chunkSize = 10000;
 
 	for (let end = fresh.length; end > 0; end -= chunkSize) {
@@ -54,11 +55,6 @@ export function prependMessages(channel: ClientChan, incoming: SharedMsg[]): num
 	}
 
 	return fresh.length;
-}
-
-// Ids restart with the server on old data, id and time together don't repeat
-function messageKey(message: SharedMsg): string {
-	return `${message.id}:${new Date(message.time).getTime()}`;
 }
 
 function appendMessages(channel: ClientChan, incoming: SharedMsg[]): number {
@@ -71,6 +67,44 @@ function appendMessages(channel: ClientChan, incoming: SharedMsg[]): number {
 	}
 
 	return fresh.length;
+}
+
+/**
+ * Leaves out the live mass event summaries whose messages are among the stored
+ * rows they are about to be shown with.
+ *
+ * The messages a summary stands for are written to storage but never sent
+ * live, and the summary itself is only held in memory. Stored rows that reach
+ * the present therefore hold the individual messages of a summary that is
+ * also in the live list. The stored rows win, as they are what any later
+ * reload shows. A summary counts as covered once the newest message it
+ * describes falls within the stored rows; older ones it describes are then
+ * stored too and come with scrolling up.
+ */
+export function withoutCoveredSummaries<T extends SharedMsg>(stored: SharedMsg[], live: T[]): T[] {
+	if (stored.length === 0) {
+		return live;
+	}
+
+	let oldest = Infinity;
+	let newest = -Infinity;
+
+	for (const m of stored) {
+		const time = new Date(m.time).getTime();
+		oldest = Math.min(oldest, time);
+		newest = Math.max(newest, time);
+	}
+
+	return live.filter((m) => {
+		const summary = m.type === MessageType.MASS_EVENT && m.massEventSummary;
+
+		if (!summary) {
+			return true;
+		}
+
+		const end = new Date(summary.endTime).getTime();
+		return !(end >= oldest && end <= newest);
+	});
 }
 
 // How many live messages a history slice holds on to before giving up and
@@ -95,18 +129,23 @@ export function showMessagesAround(
 	}
 
 	const loaded = new Set(channel.messages.map(messageKey));
-	const connects = data.messages.some((m) => loaded.has(messageKey(m)));
+	const firstLoaded = data.messages.findIndex((m) => loaded.has(messageKey(m)));
 
-	if (connects && !channel.historySlice) {
-		// The target was older than everything loaded, so whatever is new
-		// here sits directly in front of it
-		prependMessages(channel, data.messages);
+	if (firstLoaded >= 0 && !channel.historySlice) {
+		// The target was older than everything loaded, so what comes before
+		// the loaded messages sits directly in front of them. Stored rows
+		// past that point that aren't loaded are not added among them: they
+		// are rows a live mass event summary already stands for.
+		prependMessages(channel, data.messages.slice(0, firstLoaded));
 	} else if (!data.hasMoreAfter) {
 		// Reaches the newest stored message: this is the present, keep
 		// anything newer that is only in memory
 		const fetched = new Set(data.messages.map(messageKey));
-		const newer = (channel.historySlice?.live || channel.messages).filter(
-			(m) => !fetched.has(messageKey(m))
+		const newer = withoutCoveredSummaries(
+			data.messages,
+			(channel.historySlice?.live || channel.messages).filter(
+				(m) => !fetched.has(messageKey(m))
+			)
 		);
 
 		channel.messages = markMsgsRaw(data.messages).concat(newer);
@@ -149,7 +188,7 @@ export function showMessagesAfter(
 		return;
 	}
 
-	appendMessages(channel, slice.live);
+	appendMessages(channel, withoutCoveredSummaries(channel.messages, slice.live));
 	channel.historySlice = undefined;
 }
 
@@ -176,6 +215,78 @@ export function receiveLiveMessage(channel: ClientChan, message: SharedMsg): boo
 	return false;
 }
 
+type PendingJump = {
+	channel: ClientChan;
+	time: number;
+	timer: ReturnType<typeof setTimeout>;
+	onCancel?: () => void;
+};
+
+// Jumps waiting for the server to send the history around their target, by
+// channel id. An answer is only applied while its jump is still waiting:
+// one that arrives after the user went elsewhere would replace what the
+// channel shows with an old slice.
+const pendingJumps = new Map<number, PendingJump>();
+
+// How long a jump waits for its answer
+export const pendingJumpTimeout = 30 * 1000;
+
+/**
+ * Records that the history around `time` was asked for to jump to a message
+ * in `channel`. Replaces a jump already waiting there. `onCancel` runs when
+ * the jump is given up rather than answered.
+ */
+export function startPendingJump(channel: ClientChan, time: number, onCancel?: () => void): void {
+	cancelPendingJump(channel.id);
+
+	const timer = setTimeout(() => cancelPendingJump(channel.id), pendingJumpTimeout);
+	pendingJumps.set(channel.id, {channel, time, timer, onCancel});
+	channel.historyLoading = true;
+}
+
+/**
+ * Gives up the jump waiting in a channel, if any: its answer will be ignored.
+ */
+export function cancelPendingJump(chanId: number): void {
+	const pending = pendingJumps.get(chanId);
+
+	if (!pending) {
+		return;
+	}
+
+	clearTimeout(pending.timer);
+	pendingJumps.delete(chanId);
+	pending.channel.historyLoading = false;
+	pending.onCancel?.();
+}
+
+/**
+ * Gives up every waiting jump, for when the connection to the server is lost.
+ */
+export function cancelAllPendingJumps(): void {
+	for (const chanId of [...pendingJumps.keys()]) {
+		cancelPendingJump(chanId);
+	}
+}
+
+/**
+ * Takes the jump an answer from the server is for. Returns false when no jump
+ * for that channel and time is waiting any more, and the answer is to be
+ * ignored.
+ */
+export function takePendingJump(chanId: number, time: number | undefined): boolean {
+	const pending = pendingJumps.get(chanId);
+
+	if (!pending || pending.time !== time) {
+		return false;
+	}
+
+	clearTimeout(pending.timer);
+	pendingJumps.delete(chanId);
+	pending.channel.historyLoading = false;
+	return true;
+}
+
 /**
  * Drops a history slice. The channel is left empty and has to be filled with
  * the latest messages again by asking the server for them.
@@ -188,6 +299,44 @@ export function leaveHistorySlice(channel: ClientChan): void {
 	channel.historySlice = undefined;
 	channel.messages = [];
 	channel.moreHistoryAvailable = true;
+}
+
+/**
+ * Drops the oldest messages beyond `limit`. They are paged back in from the
+ * server when scrolled to, and a jump fetches the history around any message,
+ * so there is no reason to hold more than what is likely to be looked at.
+ *
+ * A history slice is never trimmed: its messages are a window into the past
+ * that the user is reading, not the newest part of the channel.
+ */
+export function trimMessages(channel: ClientChan, limit: number): void {
+	if (channel.historySlice || limit <= 0 || channel.messages.length <= limit) {
+		return;
+	}
+
+	channel.messages.splice(0, channel.messages.length - limit);
+	channel.moreHistoryAvailable = true;
+}
+
+/**
+ * How many messages a channel keeps once a live message arrived in it, 0 for
+ * no limit.
+ */
+export function liveMessageLimit(channel: ClientChan, isActiveChannel: boolean): number {
+	if (!isActiveChannel) {
+		// Nobody is looking at it, keep about what opening it shows
+		return 100;
+	}
+
+	if (channel.scrolledToBottom) {
+		// One history page holds up to 1000 messages when status messages
+		// are condensed or hidden
+		return 1500;
+	}
+
+	// The user is reading older messages (possibly a message jumped to),
+	// leave them alone
+	return 0;
 }
 
 export function toClientChan(shared: SharedNetworkChan): ClientChan {

@@ -190,30 +190,41 @@ export default defineComponent({
 			const groups = Object.create(null) as Record<string, unknown[]>;
 
 			if (hasCustomGroups.value) {
-				if (userSearchInput.value && filteredUsers.value) {
-					const filtered = filteredUsers.value.filter((user) => user.original.nick);
+				// Members as sets: with thousands of users, searching each
+				// group's array for every user took millions of comparisons.
+				// Nicks compare case-insensitively, as on IRC.
+				const members = (props.channel.groups ?? []).map(({name, users}) => ({
+					name,
+					nicks: new Set(users.map((nick) => nick.toLowerCase())),
+				}));
 
-					for (const {name, users} of props.channel.groups ?? []) {
+				if (userSearchInput.value && filteredUsers.value) {
+					const filtered = filteredUsers.value
+						.filter((user) => user.original.nick)
+						.map((user) => ({user, nick: user.original.nick.toLowerCase()}));
+
+					for (const {name, nicks} of members) {
 						groups[name] ??= [];
 
-						for (const user of filtered) {
-							if (!users.includes(user.original.nick)) {
-								continue;
+						for (const {user, nick} of filtered) {
+							if (nicks.has(nick)) {
+								groups[name].push(user);
 							}
-
-							groups[name].push(user);
 						}
 					}
 				} else {
-					for (const {name, users} of props.channel.groups ?? []) {
+					const users = props.channel.users.map((user) => ({
+						user,
+						nick: user.nick.toLowerCase(),
+					}));
+
+					for (const {name, nicks} of members) {
 						groups[name] ??= [];
 
-						for (const user of props.channel.users) {
-							if (!users.includes(user.nick)) {
-								continue;
+						for (const {user, nick} of users) {
+							if (nicks.has(nick)) {
+								groups[name].push(user);
 							}
-
-							groups[name].push(user);
 						}
 					}
 				}

@@ -332,6 +332,65 @@ export default defineComponent({
 			}
 		};
 
+		// Keeps the newest message in view as messages arrive, once per frame:
+		// reading scrollHeight forces a layout of the page, and doing that for
+		// every message of a busy channel kept the browser busy. In a frame
+		// callback the browser lays out the page for drawing anyway.
+		// Rows scrolled into view are drawn a frame later and can turn out
+		// taller than their placeholder, so it keeps looking until the bottom
+		// has held still for a few frames.
+		let followFrame = 0;
+
+		const followNewest = (budget = 30, still = 0) => {
+			if (followFrame) {
+				return;
+			}
+
+			followFrame = requestAnimationFrame(() => {
+				followFrame = 0;
+				const el = chat.value;
+
+				if (!el || !props.channel.scrolledToBottom) {
+					return;
+				}
+
+				const behind = el.scrollHeight - el.scrollTop - el.clientHeight > 1;
+
+				if (behind) {
+					scrollToBottom();
+				}
+
+				const stillFrames = behind ? 0 : still + 1;
+
+				if (stillFrames < 3 && budget > 1) {
+					followNewest(budget - 1, stillFrames);
+				}
+			});
+		};
+
+		// When the person last scrolled the list themselves (wheel, touch,
+		// scroll keys, dragging the scrollbar). Only then does moving away from
+		// the bottom stop following new messages: rows growing once drawn, or
+		// the oldest rows being dropped, move the view without anyone asking.
+		let userScrolledAt = 0;
+		const USER_SCROLL_MS = 1500;
+		const SCROLL_KEYS = new Set(["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End"]);
+
+		const markUserScroll = (e: Event) => {
+			if (e instanceof KeyboardEvent) {
+				const typing = (e.target as HTMLElement | null)?.closest?.("input, textarea");
+
+				// Page keys scroll the list even from the input (keybinds.ts)
+				if (!SCROLL_KEYS.has(e.key) || (typing && !e.key.startsWith("Page"))) {
+					return;
+				}
+			}
+
+			userScrolledAt = performance.now();
+		};
+
+		const userScrollEvents = ["wheel", "touchmove", "mousedown"] as const;
+
 		const timeOf = (message: {time: Date | string | number}) =>
 			new Date(message.time).getTime();
 
@@ -376,6 +435,7 @@ export default defineComponent({
 			await nextTick();
 			scrollToBottom();
 			isAdjustingWindow.value = false;
+			followNewest();
 		};
 
 		// Runs `change` (which moves the rendered window or the messages in
@@ -665,7 +725,11 @@ export default defineComponent({
 				if (!props.channel.scrolledToBottom) {
 					props.channel.scrolledToBottom = true;
 				}
-			} else if (props.channel.scrolledToBottom && distanceFromBottom > 100) {
+			} else if (
+				props.channel.scrolledToBottom &&
+				distanceFromBottom > 100 &&
+				performance.now() - userScrolledAt < USER_SCROLL_MS
+			) {
 				// Only unset if user scrolled significantly away from bottom
 				props.channel.scrolledToBottom = false;
 			}
@@ -742,10 +806,7 @@ export default defineComponent({
 			}
 
 			await nextTick();
-
-			if (props.channel.scrolledToBottom) {
-				scrollToBottom();
-			}
+			followNewest();
 		};
 
 		const onLinkPreviewToggle = async (preview: ClientLinkPreview, message: ClientMessage) => {
@@ -833,6 +894,10 @@ export default defineComponent({
 			chat.value?.addEventListener("touchstart", onTouchStart, {passive: true});
 			chat.value?.addEventListener("touchend", onTouchEnd, {passive: true});
 			chat.value?.addEventListener("touchcancel", onTouchEnd, {passive: true});
+			userScrollEvents.forEach((name) =>
+				chat.value?.addEventListener(name, markUserScroll, {passive: true})
+			);
+			window.addEventListener("keydown", markUserScroll, {capture: true, passive: true});
 			eventbus.on("resize", handleResize);
 			eventbus.on("messages:around", onMessagesAround);
 
@@ -851,6 +916,7 @@ export default defineComponent({
 				);
 				await nextTick();
 				scrollToBottom();
+				followNewest();
 			}
 
 			// Set up intersection observer for auto-loading history
@@ -883,6 +949,7 @@ export default defineComponent({
 				);
 				await nextTick();
 				scrollToBottom();
+				followNewest();
 				observeHistoryButtons();
 			}
 		);
@@ -913,8 +980,7 @@ export default defineComponent({
 						0,
 						allCondensedMessages.value.length - MAX_RENDERED_MESSAGES
 					);
-					await nextTick();
-					scrollToBottom();
+					followNewest();
 					return;
 				}
 
@@ -954,8 +1020,7 @@ export default defineComponent({
 					// Keep window at the end when new messages come in
 					const total = allCondensedMessages.value.length;
 					windowStartIndex.value = Math.max(0, total - MAX_RENDERED_MESSAGES);
-					await nextTick();
-					scrollToBottom();
+					followNewest();
 				} else if (oldLen !== undefined && newLen > oldLen) {
 					// Messages were added at the end while the user reads older
 					// ones: leave the view alone, but if it is at the end of the
@@ -987,6 +1052,8 @@ export default defineComponent({
 		);
 
 		onBeforeUnmount(() => {
+			cancelAnimationFrame(followFrame);
+
 			stopHolding?.();
 			cancelPendingJump(props.channel.id);
 			eventbus.off("resize", handleResize);
@@ -996,6 +1063,10 @@ export default defineComponent({
 			chat.value?.removeEventListener("touchend", onTouchEnd);
 			chat.value?.removeEventListener("touchcancel", onTouchEnd);
 			clearTimeout(autoLoadRecheck);
+			userScrollEvents.forEach((name) =>
+				chat.value?.removeEventListener(name, markUserScroll)
+			);
+			window.removeEventListener("keydown", markUserScroll, {capture: true});
 		});
 
 		onUnmounted(() => {

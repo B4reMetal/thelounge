@@ -247,6 +247,7 @@ export default async function (
 				});
 
 				sockets.on("connect", (socket) => {
+					catchHandlerErrors(socket);
 					socket.on("error", (err) => log.error(`io socket error: ${err}`));
 
 					if (Config.values.public) {
@@ -651,6 +652,20 @@ function initializeClient(
 						const hash = Helper.password.hash(p1);
 
 						client.setPassword(hash, (success: boolean) => {
+							if (success) {
+								// Whoever knew the old password may still be signed in
+								// elsewhere: keep only the session that changed it
+								const others = Object.keys(client.config.sessions).filter(
+									(sessionToken) => sessionToken !== token
+								);
+
+								if (others.length > 0) {
+									others.forEach(signOutSession);
+									client.save();
+									sendSessionList();
+								}
+							}
+
 							socket.emit("change-password", {
 								success: success,
 								error: success ? undefined : "update_failed",
@@ -818,7 +833,7 @@ function initializeClient(
 		socket.on("push:unregister", () => client.unregisterPushSubscription(token));
 	}
 
-	const sendSessionList = () => {
+	function sendSessionList() {
 		// TODO: this should use the ClientSession type currently in client
 		const sessions = _.map(client.config.sessions, (session, sessionToken) => {
 			return {
@@ -837,7 +852,7 @@ function initializeClient(
 		});
 
 		socket.emit("sessions:list", sessions);
-	};
+	}
 
 	socket.on("sessions:get", sendSessionList);
 
@@ -997,6 +1012,22 @@ function initializeClient(
 		});
 	}
 
+	// Forgets the session and disconnects its browsers; the caller saves
+	function signOutSession(tokenToSignOut: string) {
+		delete client.config.sessions[tokenToSignOut];
+
+		_.forOwn(client.attachedClients, (attachedClient, socketId) => {
+			if (attachedClient.token !== tokenToSignOut) {
+				return;
+			}
+
+			const socketToRemove = manager!.sockets.of("/").sockets.get(socketId);
+
+			socketToRemove?.emit("sign-out");
+			socketToRemove?.disconnect();
+		});
+	}
+
 	socket.on("sign-out", (tokenToSignOut) => {
 		// If no token provided, sign same client out
 		if (!tokenToSignOut || typeof tokenToSignOut !== "string") {
@@ -1007,20 +1038,8 @@ function initializeClient(
 			return;
 		}
 
-		delete client.config.sessions[tokenToSignOut];
-
+		signOutSession(tokenToSignOut);
 		client.save();
-
-		_.map(client.attachedClients, (attachedClient, socketId) => {
-			if (attachedClient.token !== tokenToSignOut) {
-				return;
-			}
-
-			const socketToRemove = manager!.sockets.of("/").sockets.get(socketId);
-
-			socketToRemove!.emit("sign-out");
-			socketToRemove!.disconnect();
-		});
 
 		// Do not send updated session list if user simply logs out
 		if (tokenToSignOut !== token) {
@@ -1127,6 +1146,42 @@ function getClientConfiguration(): SharedConfiguration | LockedSharedConfigurati
 
 function getServerConfiguration(): ServerConfiguration {
 	return {...Config.values, ...{stylesheets: packages.getStylesheets()}};
+}
+
+/**
+ * socket.io runs event handlers from process.nextTick, so an exception thrown
+ * by one is never caught and stops the whole server, for every user. One
+ * malformed event from a browser must not do that: wrap every handler later
+ * registered on this socket, log what went wrong and drop the event.
+ */
+export function catchHandlerErrors(socket: Socket) {
+	const on = socket.on.bind(socket) as (
+		event: string,
+		handler: (...args: unknown[]) => unknown
+	) => Socket;
+
+	const report = (event: string, error: unknown) => {
+		const detail = error instanceof Error ? error.stack || error.message : String(error);
+		log.error(`Socket event "${event}" from ${getClientIp(socket)} failed: ${detail}`);
+	};
+
+	socket.on = function (event: string, handler: (...args: unknown[]) => unknown) {
+		const wrapper = function (this: Socket, ...args: unknown[]) {
+			try {
+				const result = handler.apply(this, args);
+
+				if (result instanceof Promise) {
+					result.catch((error) => report(event, error));
+				}
+			} catch (error) {
+				report(event, error);
+			}
+		};
+
+		// EventEmitter matches a listener's .listener in off() and listeners(),
+		// so off(event, handler) still removes it and once() can remove itself
+		return on(event, Object.assign(wrapper, {listener: handler}));
+	} as Socket["on"];
 }
 
 function performAuthentication(this: Socket, data: AuthPerformData) {

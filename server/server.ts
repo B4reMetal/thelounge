@@ -23,6 +23,7 @@ import themes from "./plugins/packages/themes.js";
 themes.loadLocalThemes();
 
 import packages from "./plugins/packages/index.js";
+import avatars, {avatarContentTypes, avatarFileRegex} from "./plugins/avatars.js";
 import {NetworkWithIrcFramework} from "./models/network.js";
 import Utils from "./command-line/utils.js";
 import type {
@@ -123,6 +124,26 @@ export default async function (
 		}
 
 		return res.sendFile(theme.filename);
+	});
+
+	// Cached tracker avatars. File names are unguessable (keyed with a server
+	// secret) and change when the image does, so they can be cached for good.
+	app.get("/avatars/:file", (req, res) => {
+		const file = req.params.file;
+
+		if (!avatars.enabled || !avatarFileRegex.test(file)) {
+			return res.status(404).send("Not found");
+		}
+
+		const ext = file.slice(file.lastIndexOf(".") + 1);
+		res.setHeader("Content-Type", avatarContentTypes[ext]);
+		res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+		res.setHeader("X-Content-Type-Options", "nosniff");
+		return res.sendFile(path.join(avatars.getDir(), file), (err) => {
+			if (err && !res.headersSent) {
+				res.status(404).send("Not found");
+			}
+		});
 	});
 
 	app.get("/packages/:package/:filename", (req, res) => {
@@ -259,6 +280,18 @@ export default async function (
 				});
 
 				manager = new ClientManager();
+
+				if (Config.values.avatars?.enable) {
+					avatars.init({
+						users: () =>
+							(manager?.clients || []).map((c) => ({
+								name: c.name,
+								networks: c.networks,
+								emit: (event, data) => c.emit(event, data),
+							})),
+					});
+				}
+
 				await packages.loadPackages();
 
 				const defaultTheme = themes.getByName(Config.values.theme);
@@ -515,7 +548,45 @@ function initializeClient(
 	}
 
 	socket.on("disconnect", function () {
+		avatars.unregisterFetcher(socket.id);
 		process.nextTick(() => client.clientDetach(socket.id));
+	});
+
+	// Tracker avatars: a browser logged in to a tracker offers to fetch for us
+	// (see server/plugins/avatars.ts), and anyone can ask for a nick they open.
+	socket.on("avatars:fetcher", (data) => {
+		if (_.isPlainObject(data)) {
+			avatars.registerFetcher(socket.id, client.name, data.hosts, (job) =>
+				socket.emit("avatars:fetch", job)
+			);
+		}
+	});
+
+	socket.on("avatars:want", (data) => {
+		if (
+			!_.isPlainObject(data) ||
+			typeof data.network !== "string" ||
+			typeof data.nick !== "string"
+		) {
+			return;
+		}
+
+		const network = client.networks.find((n) => n.uuid === data.network);
+
+		if (network) {
+			for (const tracker of avatars.trackersFor(
+				network,
+				typeof data.channel === "string" ? data.channel : undefined
+			)) {
+				avatars.want(tracker, data.nick, 1);
+			}
+		}
+	});
+
+	socket.on("avatars:result", (data) => {
+		if (_.isPlainObject(data)) {
+			avatars.handleResult(socket.id, data);
+		}
 	});
 
 	socket.on("input", (data) => {
@@ -1059,6 +1130,10 @@ function initializeClient(
 			token: tokenToSend,
 		});
 		socket.emit("commands", inputs.getCommands());
+
+		if (avatars.enabled) {
+			socket.emit("avatars:update", avatars.listFor(client));
+		}
 	};
 
 	if (Config.values.public) {

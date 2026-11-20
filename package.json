@@ -1,7 +1,7 @@
 {
   "name": "thelounge",
   "description": "The self-hosted Web IRC client",
-  "version": "2026.11.3-rc.3",
+  "version": "2026.11.3",
   "type": "module",
   "preferGlobal": true,
   "bin": "index.js",

@@ -109,6 +109,8 @@
 	.settings-menu {
 		/* the dropdown below is absolutely positioned against this */
 		position: relative;
+		/* drop the desktop offset, or the toggle overlaps the first card */
+		top: auto;
 		width: min(480px, 100%);
 		align-self: center;
 		margin: 0 auto 12px;

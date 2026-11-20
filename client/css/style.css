@@ -2925,20 +2925,6 @@ part/quit messages where we don't load previews (adds a blank line otherwise) */
 	cursor: help;
 }
 
-/* Settings pages not built from SettingCard/SettingToggle (e.g. Trackers) */
-#settings .opt {
-	display: block;
-	padding: 5px 0 5px 1px;
-}
-
-#settings .opt input {
-	margin-right: 6px;
-}
-
-#settings h2 .extra-help {
-	font-size: 0.8em;
-}
-
 .password-container {
 	position: relative;
 }

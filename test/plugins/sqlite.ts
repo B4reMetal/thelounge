@@ -479,6 +479,178 @@ describe("SQLite background search index", function () {
 	});
 });
 
+describe("SQLite clearing history", function () {
+	this.timeout(20000);
+	let dir: string;
+	let file: string;
+	const stores: MessageStorage[] = [];
+	const total = 2000;
+	const net = testNet("net");
+	const big = testChan("#Big");
+	const other = testChan("#other");
+
+	const open = async () => {
+		const store = new MessageStorage("clear");
+		stores.push(store);
+		await store._enable(file);
+		store.initDone.resolve();
+		return store;
+	};
+
+	// Three in four lines go to #big
+	beforeEach(async function () {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "thelounge-clear-"));
+		file = path.join(dir, "user.sqlite3");
+		const store = await open();
+
+		for (let i = 0; i < total; i++) {
+			await store.index(
+				net,
+				i % 4 === 3 ? other : big,
+				new Msg({time: new Date(1700000000000 + i), text: `line ${i}`})
+			);
+		}
+
+		await store.close();
+	});
+
+	afterEach(async function () {
+		for (const store of stores.splice(0)) {
+			await store.close();
+		}
+
+		fs.rmSync(dir, {recursive: true, force: true});
+	});
+
+	// Steps of 100 rows, so that clearing #big takes several
+	const smallSteps = (store: MessageStorage) => {
+		(store as unknown as {clearRows: number}).clearRows = 100;
+	};
+
+	const stored = (store: MessageStorage, chan: Channel) =>
+		store.database
+			.prepare("SELECT count(*) FROM messages WHERE channel = ?")
+			.pluck()
+			.get(chan.name.toLowerCase()) as number;
+
+	const texts = async (store: MessageStorage, chan: Channel) =>
+		(await store.getMessages(net, chan, () => undefined)).map((m) => m.text);
+
+	const search = async (store: MessageStorage, term: string, channelName = "") =>
+		(
+			await store.search({searchTerm: term, networkUuid: "net", channelName, offset: 0})
+		).results.map((m) => m.text);
+
+	const pending = (store: MessageStorage) =>
+		store.database
+			.prepare("SELECT value FROM options WHERE name = 'history_clears'")
+			.pluck()
+			.get() as string | undefined;
+
+	// The index's own merging, off while deleting
+	const merging = (store: MessageStorage) =>
+		Object.fromEntries(
+			(
+				store.database
+					.prepare(
+						"SELECT k, v FROM messages_fts_config WHERE k IN ('automerge', 'deletemerge')"
+					)
+					.all() as {k: string; v: number}[]
+			).map((row) => [row.k, row.v])
+		);
+
+	it("should clear a short history right away", async function () {
+		const store = await open();
+		await store.deleteChannel(net, other);
+
+		expect(stored(store, other)).to.equal(0);
+		expect(stored(store, big)).to.equal(total * 0.75);
+
+		// What may be left is tidying up the index
+		await store.finishClearingHistory();
+		expect(pending(store)).to.equal(undefined);
+		expect(merging(store)).to.deep.equal({automerge: 4, deletemerge: 10});
+		store.database.exec("INSERT INTO messages_fts(messages_fts) VALUES('integrity-check')");
+	});
+
+	it("should hide a long history at once and delete it in the background", async function () {
+		const store = await open();
+		smallSteps(store);
+		await store.deleteChannel(net, big);
+
+		// One step in: most rows are still stored, none of them shows
+		expect(stored(store, big)).to.be.within(1, total * 0.75 - 1);
+		expect(pending(store)).to.be.a("string");
+		expect(merging(store)).to.deep.equal({automerge: 0, deletemerge: 0});
+		expect(await texts(store, big)).to.deep.equal([]);
+		expect(await store.getMessagesBefore("net", "#Big", 1800000000000, 50)).to.deep.equal([]);
+		expect(await store.getMessagesAfter("net", "#big", 0, 50)).to.deep.equal([]);
+		expect(
+			(await store.getMessagesAround("net", "#big", 1700000001000, 50)).messages
+		).to.deep.equal([]);
+		expect(await search(store, "line 1000")).to.deep.equal([]);
+		expect(await search(store, "line", "#big")).to.deep.equal([]);
+		expect(await search(store, "line 1003")).to.deep.equal(["line 1003"]);
+		expect(await texts(store, other)).to.have.lengthOf(total / 4);
+
+		// What is said from now on stays
+		await store.index(net, big, new Msg({time: new Date(1800000000000), text: "after it"}));
+		expect(await texts(store, big)).to.deep.equal(["after it"]);
+		expect(await search(store, "after it")).to.deep.equal(["after it"]);
+
+		// Left to its timers, it finishes on its own
+		for (let i = 0; i < 400 && pending(store) !== undefined; i++) {
+			await new Promise((r) => setTimeout(r, 10));
+		}
+
+		expect(stored(store, big)).to.equal(1);
+		expect(await texts(store, big)).to.deep.equal(["after it"]);
+		expect(await texts(store, other)).to.have.lengthOf(total / 4);
+		expect(pending(store)).to.equal(undefined);
+		expect(merging(store)).to.deep.equal({automerge: 4, deletemerge: 10});
+
+		// The index lost exactly the deleted rows
+		expect(
+			store.database
+				.prepare("SELECT count(*) FROM messages_fts WHERE messages_fts MATCH ?")
+				.pluck()
+				.get(trigramQuery("line"))
+		).to.equal(total / 4);
+		store.database.exec("INSERT INTO messages_fts(messages_fts) VALUES('integrity-check')");
+	});
+
+	it("should carry on after a restart", async function () {
+		const first = await open();
+		smallSteps(first);
+		await first.deleteChannel(net, big);
+		await first.close();
+
+		const store = await open();
+		expect(stored(store, big)).to.be.above(0);
+		expect(await texts(store, big)).to.deep.equal([]);
+
+		await store.finishClearingHistory();
+		expect(stored(store, big)).to.equal(0);
+		expect(await texts(store, other)).to.have.lengthOf(total / 4);
+		expect(pending(store)).to.equal(undefined);
+	});
+
+	it("should also hide what was said in between when cleared again", async function () {
+		const store = await open();
+		smallSteps(store);
+		await store.deleteChannel(net, big);
+		await store.index(net, big, new Msg({time: new Date(1800000000000), text: "in between"}));
+		expect(await texts(store, big)).to.deep.equal(["in between"]);
+
+		await store.deleteChannel(net, big);
+		expect(await texts(store, big)).to.deep.equal([]);
+
+		await store.finishClearingHistory();
+		expect(stored(store, big)).to.equal(0);
+		expect(await texts(store, other)).to.have.lengthOf(total / 4);
+	});
+});
+
 describe("SQLite Message Storage", function () {
 	// Increase timeout due to unpredictable I/O on CI services
 	this.timeout(util.isRunningOnCI() ? 25000 : 5000);
@@ -633,6 +805,10 @@ describe("SQLite Message Storage", function () {
 		// Reading flushes whatever is still queued
 		const messages = await store.getMessages(net, chan, () => 0);
 		expect(messages).to.have.lengthOf(0);
+
+		// Also once the rows are really gone, and the clear is done for the tests after
+		await store.finishClearingHistory();
+		expect(await store.getMessages(net, chan, () => 0)).to.have.lengthOf(0);
 	});
 
 	it("should retrieve latest LIMIT messages in order", async function () {
@@ -956,6 +1132,7 @@ describe("SQLite Message Storage", function () {
 	it("should drop deleted messages from the index", async function () {
 		const before = indexHits("quick");
 		await store.deleteChannel(ftsNet, ftsOther);
+		await store.finishClearingHistory();
 
 		expect(indexHits("quick")).to.equal(before - 1);
 		expect(await findEveryWay("elsewhere", ftsOther.name)).to.deep.equal([]);

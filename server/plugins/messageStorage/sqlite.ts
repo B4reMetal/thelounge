@@ -43,6 +43,15 @@ const ftsBackfillStmts = [
 // Steps are sized to fit it, and the server gets a turn in between.
 const ftsBackfillStepMs = 40;
 
+// The same for deleting the history of a cleared channel. A single DELETE of
+// a channel with 1.5M messages held the server up for 25 to 36 seconds, most
+// of it spent taking each row out of the search index.
+const clearStepMs = 20;
+
+// SQLite's defaults for the index's merge options, see clearHistoryStep()
+const ftsDefaultAutomerge = 4;
+const ftsDefaultDeleteMerge = 10;
+
 // How many index hits each search strategy is used for. Exported so tests can
 // force a strategy; the values come from measurements on a 3M message history.
 export const searchLimits = {
@@ -200,6 +209,13 @@ class Deferred {
 	}
 }
 
+// A channel whose history was cleared: its rows with ids up to `upto` are
+// hidden at once and deleted a step at a time afterwards. Ids only grow
+// (AUTOINCREMENT), so anything stored after the clear is above `upto`.
+type HistoryClear = {network: string; channel: string; upto: number};
+
+const clearKey = (network: string, channel: string) => `${network}\n${channel}`;
+
 type BatchedMessage = {
 	network: string;
 	channel: string;
@@ -237,6 +253,16 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		lastLog: number;
 	} | null = null;
 
+	// Cleared channels with rows still to delete, kept in the options table
+	// as well so that a restart carries on where this left off. Pending
+	// until the search index is tidied up after them, too.
+	private clears = new Map<string, HistoryClear>();
+	private clearsPending = false;
+	private clearTimer: NodeJS.Timeout | null = null;
+	private clearRows = 1000; // rows per step, adjusted to clearStepMs
+	private tidyPages = 100; // index pages per step, likewise
+	private ftsMergeOff = false;
+
 	constructor(userName: string) {
 		this.userName = userName;
 		this.isEnabled = false;
@@ -263,6 +289,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 		this.isEnabled = true;
 		this.startSearchIndexBuild();
+		this.loadHistoryClears();
 	}
 
 	private option(name: string): string | undefined {
@@ -587,6 +614,13 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		}
 
 		this.backfill = null;
+
+		// So do cleared channels still being deleted
+		if (this.clearTimer) {
+			clearTimeout(this.clearTimer);
+			this.clearTimer = null;
+		}
+
 		this.isEnabled = false;
 
 		try {
@@ -818,15 +852,208 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			return;
 		}
 
-		// Write out queued rows first, or they land after the delete and the
-		// cleared history comes back
+		// Queued rows are part of the history being cleared
 		await this.flushBatch();
 
-		await this.serialize_run(
-			"DELETE FROM messages WHERE network = ? AND channel = ?",
-			network.uuid,
-			channel.name.toLowerCase()
+		const upto = this.database.prepare("SELECT max(id) FROM messages").pluck().get() as
+			number | null;
+
+		if (upto === null) {
+			return;
+		}
+
+		const clear = {network: network.uuid, channel: channel.name.toLowerCase(), upto};
+
+		// Recorded before anything is deleted: from here on reads leave these
+		// rows out, also after a restart half way through
+		this.clears.set(clearKey(clear.network, clear.channel), clear);
+		this.saveHistoryClears();
+
+		// Most channels are gone after this first step. The rest, and tidying
+		// up the index, carries on in the background, or already does for an
+		// earlier clear.
+		if (!this.clearTimer) {
+			this.runClearSteps();
+		}
+	}
+
+	/**
+	 * Does the next piece of clearing history: deletes a batch of rows of a
+	 * cleared channel or, once none are left, merges a little of the search
+	 * index. Returns true once there is nothing left to do.
+	 */
+	clearHistoryStep(): boolean {
+		if (!this.clearsPending) {
+			return true;
+		}
+
+		const next = this.clears.entries().next();
+
+		if (next.done) {
+			return this.tidySearchIndexStep();
+		}
+
+		const [key, clear] = next.value;
+
+		// Each deleted row goes on a list in the index, which is rewritten
+		// whenever it doubles, and pays for merging some of the index. That
+		// merging made steps take seconds on a big history, most of all with
+		// 'deletemerge' at its default, which rewrites whole parts of the
+		// index once a tenth of their rows are deleted. It is off while
+		// deleting; tidySearchIndexStep() does it afterwards, in small steps.
+		if (!this.ftsMergeOff) {
+			this.setFtsMerging(false);
+		}
+
+		const started = Date.now();
+		const deleted = this.database
+			.prepare(
+				"DELETE FROM messages WHERE id IN (SELECT id FROM messages WHERE network = ? AND channel = ? AND id <= ? LIMIT ?)"
+			)
+			.run(clear.network, clear.channel, clear.upto, this.clearRows).changes;
+
+		if (deleted < this.clearRows) {
+			this.clears.delete(key);
+			this.saveHistoryClears();
+		}
+
+		// Aim the next step at clearStepMs, growing at most twofold at a time
+		const took = Math.max(1, Date.now() - started);
+		this.clearRows = Math.min(
+			this.clearRows * 2,
+			50000,
+			Math.max(100, Math.round((this.clearRows * clearStepMs) / took))
 		);
+
+		return false;
+	}
+
+	/**
+	 * Merges a few pages of the search index, which drops the rows deleted
+	 * from it. Left to the deletes that come later, it made each storage
+	 * cleaner pass take seconds until all of it was done, as every deleted
+	 * row pays for some merging. Returns true once nothing is left to merge.
+	 */
+	private tidySearchIndexStep(): boolean {
+		if (this.ftsMergeOff) {
+			this.setFtsMerging(true);
+		}
+
+		const totalChanges = this.database.prepare("SELECT total_changes()").pluck();
+		const before = totalChanges.get() as number;
+		const started = Date.now();
+		this.database
+			.prepare("INSERT INTO messages_fts(messages_fts, rank) VALUES('merge', ?)")
+			.run(BigInt(this.tidyPages));
+
+		// Fewer than two changes is how SQLite tells there was nothing to merge
+		if ((totalChanges.get() as number) - before >= 2) {
+			const took = Math.max(1, Date.now() - started);
+			this.tidyPages = Math.min(
+				this.tidyPages * 2,
+				5000,
+				Math.max(16, Math.round((this.tidyPages * clearStepMs) / took))
+			);
+			return false;
+		}
+
+		this.clearsPending = false;
+		this.database.prepare("DELETE FROM options WHERE name = 'history_clears'").run();
+		return true;
+	}
+
+	/**
+	 * Does everything clearing history has left in one go, for tests.
+	 * Resolves at once if there is nothing.
+	 */
+	async finishClearingHistory() {
+		if (this.clearTimer) {
+			clearTimeout(this.clearTimer);
+			this.clearTimer = null;
+		}
+
+		while (!this.clearHistoryStep()) {
+			await new Promise((resolve) => setImmediate(resolve));
+		}
+	}
+
+	private runClearSteps() {
+		this.clearTimer = null;
+
+		try {
+			if (!this.clearHistoryStep()) {
+				// A few ms in between, so that a busy server isn't starved
+				this.clearTimer = setTimeout(() => this.runClearSteps(), 5);
+			}
+		} catch (err) {
+			// The rows stay hidden, the next start carries on
+			log.error(`Clearing history for ${this.userName} failed:`, String(err));
+		}
+	}
+
+	// Turns the index's own merging after writes and deletes off or back on
+	private setFtsMerging(on: boolean) {
+		const set = this.database.prepare(
+			"INSERT INTO messages_fts(messages_fts, rank) VALUES(?, ?)"
+		);
+
+		// As BigInts, the index refuses numbers bound as floats
+		set.run("automerge", BigInt(on ? ftsDefaultAutomerge : 0));
+		set.run("deletemerge", BigInt(on ? ftsDefaultDeleteMerge : 0));
+		this.ftsMergeOff = !on;
+	}
+
+	// The saved list stays, empty, until the index is tidied up as well
+	private loadHistoryClears() {
+		this.clears.clear();
+		const saved = this.option("history_clears");
+
+		if (saved === undefined) {
+			return;
+		}
+
+		this.clearsPending = true;
+
+		try {
+			for (const clear of JSON.parse(saved) as HistoryClear[]) {
+				this.clears.set(clearKey(clear.network, clear.channel), clear);
+			}
+		} catch (err) {
+			log.error(
+				`Unreadable list of cleared channels for ${this.userName}, their history may show again:`,
+				String(err)
+			);
+		}
+
+		this.clearTimer = setTimeout(() => this.runClearSteps(), 5);
+	}
+
+	private saveHistoryClears() {
+		this.clearsPending = true;
+		this.database
+			.prepare("INSERT OR REPLACE INTO options (name, value) VALUES ('history_clears', ?)")
+			.run(JSON.stringify(Array.from(this.clears.values())));
+	}
+
+	/**
+	 * Leaves out the rows of a cleared channel that are still to be deleted,
+	 * for a query of that channel's rows: what to read from, a condition on
+	 * `id` and its parameters. Plain `messages` when nothing is waiting.
+	 */
+	private hideCleared(
+		network: string,
+		channel: string
+	): {table: string; sql: string; params: number[]} {
+		const clear = this.clears.get(clearKey(network, channel.toLowerCase()));
+
+		if (!clear) {
+			return {table: "messages", sql: "", params: []};
+		}
+
+		// What is left of the channel is what was stored since the clear, so
+		// look rows up by id: through the channel's index the query would
+		// step over every hidden row (85ms for 1.3M of them)
+		return {table: "messages NOT INDEXED", sql: " AND id > ?", params: [clear.upto]};
 	}
 
 	async getMessages(
@@ -846,11 +1073,14 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		// If unlimited history is specified, load 100k messages
 		const limit = Config.values.maxHistory < 0 ? 100000 : Config.values.maxHistory;
 
+		const hidden = this.hideCleared(network.uuid, channel.name);
+
 		// Select id from SQLite to use as the canonical message ID
 		const rows = await this.serialize_fetchall(
-			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? ORDER BY time DESC, id DESC LIMIT ?",
+			`SELECT id, msg, type, time FROM ${hidden.table} WHERE network = ? AND channel = ?${hidden.sql} ORDER BY time DESC, id DESC LIMIT ?`,
 			network.uuid,
 			channel.name.toLowerCase(),
+			...hidden.params,
 			limit
 		);
 
@@ -952,6 +1182,17 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		if (dateStartFilter !== null) {
 			where += " AND m.time >= ?";
 			whereParams.push(dateStartFilter);
+		}
+
+		// Cleared channels whose rows aren't all deleted yet
+		for (const clear of this.clears.values()) {
+			if (
+				(!query.networkUuid || query.networkUuid === clear.network) &&
+				(!query.channelName || query.channelName.toLowerCase() === clear.channel)
+			) {
+				where += " AND NOT (m.network = ? AND m.channel = ? AND m.id <= ?)";
+				whereParams.push(clear.network, clear.channel, clear.upto);
+			}
 		}
 
 		const maxResults = 100;
@@ -1116,13 +1357,15 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		// Flush any pending batched writes before reading
 		await this.flushBatch();
 
+		const hidden = this.hideCleared(networkUuid, channelName);
 		const rows = await this.serialize_fetchall(
-			`SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time ${
+			`SELECT id, msg, type, time FROM ${hidden.table} WHERE network = ? AND channel = ? AND time ${
 				inclusive ? "<=" : "<"
-			} ? ORDER BY time DESC, id DESC LIMIT ?`,
+			} ?${hidden.sql} ORDER BY time DESC, id DESC LIMIT ?`,
 			networkUuid,
 			channelName.toLowerCase(),
 			beforeTime,
+			...hidden.params,
 			limit
 		);
 
@@ -1150,21 +1393,24 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		await this.flushBatch();
 
 		const halfLimit = Math.floor(limit / 2);
+		const hidden = this.hideCleared(networkUuid, channelName);
 
 		// One row more than needed on each side tells whether there is more
 		const beforeRows = await this.serialize_fetchall(
-			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time <= ? ORDER BY time DESC, id DESC LIMIT ?",
+			`SELECT id, msg, type, time FROM ${hidden.table} WHERE network = ? AND channel = ? AND time <= ?${hidden.sql} ORDER BY time DESC, id DESC LIMIT ?`,
 			networkUuid,
 			channelName.toLowerCase(),
 			targetTime,
+			...hidden.params,
 			halfLimit + 1
 		);
 
 		const afterRows = await this.serialize_fetchall(
-			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time > ? ORDER BY time ASC, id ASC LIMIT ?",
+			`SELECT id, msg, type, time FROM ${hidden.table} WHERE network = ? AND channel = ? AND time > ?${hidden.sql} ORDER BY time ASC, id ASC LIMIT ?`,
 			networkUuid,
 			channelName.toLowerCase(),
 			targetTime,
+			...hidden.params,
 			halfLimit + 1
 		);
 
@@ -1200,11 +1446,13 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		// Flush any pending batched writes before reading
 		await this.flushBatch();
 
+		const hidden = this.hideCleared(networkUuid, channelName);
 		const rows = await this.serialize_fetchall(
-			"SELECT id, msg, type, time FROM messages WHERE network = ? AND channel = ? AND time >= ? ORDER BY time ASC, id ASC LIMIT ?",
+			`SELECT id, msg, type, time FROM ${hidden.table} WHERE network = ? AND channel = ? AND time >= ?${hidden.sql} ORDER BY time ASC, id ASC LIMIT ?`,
 			networkUuid,
 			channelName.toLowerCase(),
 			afterTime,
+			...hidden.params,
 			limit
 		);
 

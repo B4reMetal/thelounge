@@ -23,6 +23,8 @@ export type SharedServerOptions = {
 	PREFIX: SharedPrefix;
 	NETWORK: string;
 	supportsReply: boolean;
+	// IRCv3 away-notify: the server reports away changes as they happen
+	supportsAwayNotify: boolean;
 	MONITOR: number | null;
 };
 

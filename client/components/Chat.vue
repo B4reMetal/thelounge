@@ -99,7 +99,11 @@
 					>
 						<div class="scroll-down-arrow" />
 					</button>
-					<ChatUserList v-if="channel.type === 'channel'" :channel="channel" />
+					<ChatUserList
+						v-if="channel.type === 'channel'"
+						:network="network"
+						:channel="channel"
+					/>
 					<MessageList
 						ref="messageList"
 						:network="network"

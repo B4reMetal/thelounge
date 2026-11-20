@@ -33,6 +33,11 @@ const defaultConfig = {
 	statusIndicators: {
 		default: true,
 	},
+	// Without away-notify, away state is only read once on join and goes stale;
+	// skipping the user list dots there also saves thousands of DOM nodes in big channels
+	statusIndicatorsLiveOnly: {
+		default: true,
+	},
 	desktopNotifications: {
 		default: false,
 		sync: "never",

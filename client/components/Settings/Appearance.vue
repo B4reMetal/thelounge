@@ -182,8 +182,15 @@
 			<SettingToggle
 				name="statusIndicators"
 				label="Online status indicators"
-				description="Show a dot for whether the person in a query window is online or away"
+				description="Show a dot for whether people are online or away, in query windows and the user list"
 				:checked="store.state.settings.statusIndicators"
+			/>
+			<SettingToggle
+				name="statusIndicatorsLiveOnly"
+				label="Only show away status the server keeps up to date"
+				description="Hide user list dots on servers without live away updates (IRCv3 away-notify), where they would go stale. Also makes big channels lighter."
+				:checked="store.state.settings.statusIndicatorsLiveOnly"
+				:disabled="!store.state.settings.statusIndicators"
 			/>
 			<SettingToggle
 				name="autocomplete"

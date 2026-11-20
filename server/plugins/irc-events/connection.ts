@@ -170,6 +170,7 @@ export default <IrcEventHandler>function (irc, network) {
 		// Re-read from RPL_ISUPPORT on the next connection, so nothing is sent
 		// before we know this server supports MONITOR
 		network.serverOptions.MONITOR = null;
+		network.serverOptions.supportsAwayNotify = false;
 
 		network.channels.forEach((chan) => {
 			chan.users = new Map();
@@ -276,6 +277,7 @@ export default <IrcEventHandler>function (irc, network) {
 
 		network.serverOptions.NETWORK = data.options.NETWORK;
 		network.serverOptions.supportsReply = irc.network.supportsTag("reply");
+		network.serverOptions.supportsAwayNotify = irc.network.cap.isEnabled("away-notify");
 		network.serverOptions.MONITOR = parseMonitorLimit(data.options.MONITOR);
 		syncMonitorList();
 

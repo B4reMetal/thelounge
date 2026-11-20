@@ -132,10 +132,11 @@
 import {filter as fuzzyFilter} from "fuzzy";
 import {computed, defineComponent, nextTick, PropType, ref} from "vue";
 import type {UserInMessage} from "../../shared/types/msg";
-import type {ClientChan, ClientUser} from "../js/types";
+import type {ClientChan, ClientNetwork, ClientUser} from "../js/types";
 import {useStore} from "../js/store";
 import Username from "./Username.vue";
 import groupSlug from "../js/helpers/groupSlug";
+import shouldShowUserListStatus from "../js/helpers/statusIndicators";
 
 const modes = {
 	"~": "owner",
@@ -153,6 +154,7 @@ export default defineComponent({
 		Username,
 	},
 	props: {
+		network: {type: Object as PropType<ClientNetwork>, required: true},
 		channel: {type: Object as PropType<ClientChan>, required: true},
 	},
 	setup(props) {
@@ -376,7 +378,13 @@ export default defineComponent({
 			scrollToActiveUser();
 		};
 
-		const showStatusIndicators = computed(() => store.state.settings.statusIndicators);
+		const showStatusIndicators = computed(() =>
+			shouldShowUserListStatus(
+				store.state.settings.statusIndicators,
+				store.state.settings.statusIndicatorsLiveOnly,
+				props.network.serverOptions.supportsAwayNotify
+			)
+		);
 
 		return {
 			filteredUsers,

@@ -74,7 +74,7 @@ describe("History slices (jump to message)", function () {
 
 	it("tells a reused id apart by its time", function () {
 		// id 950 again, from an earlier run of the server
-		const old = {...msg(950), time: new Date(200 * 1000)} as SharedMsg;
+		const old = {...msg(950), time: new Date(200 * 1000)};
 		const channel = channelWith(range(900, 1000));
 
 		showMessagesAround(channel, {
@@ -89,7 +89,7 @@ describe("History slices (jump to message)", function () {
 
 	it("keeps a reused id when adding connected history in front", function () {
 		// id 950 again, from an earlier run of the server, next to messages that connect
-		const old = {...msg(950), time: new Date(899500)} as SharedMsg;
+		const old = {...msg(950), time: new Date(899500)};
 		const channel = channelWith(range(900, 1000));
 
 		showMessagesAround(channel, {
@@ -105,7 +105,7 @@ describe("History slices (jump to message)", function () {
 
 	it("prepends older pages by id and time", function () {
 		const channel = channelWith(range(900, 1000));
-		const old = {...msg(950), time: new Date(100 * 1000)} as SharedMsg;
+		const old = {...msg(950), time: new Date(100 * 1000)};
 
 		// a page the client already has part of, plus a different message reusing an id
 		const added = prependMessages(channel, [old, ...range(890, 905)]);

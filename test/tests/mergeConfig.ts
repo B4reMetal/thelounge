@@ -37,7 +37,7 @@ describe("mergeConfig", function () {
 		expect(
 			merge(config, {
 				ip: "overridden",
-			} as TestConfig)
+			})
 		).to.deep.equal({
 			ip: "overridden",
 		});
@@ -53,10 +53,10 @@ describe("mergeConfig", function () {
 				{
 					ip: "default",
 					newProp: "this should appear too",
-				} as TestConfig,
+				},
 				{
 					ip: "overridden",
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			ip: "overridden",
@@ -69,13 +69,13 @@ describe("mergeConfig", function () {
 			merge(
 				{
 					tlsOptions: {},
-				} as TestConfig,
+				},
 				{
 					tlsOptions: {
 						user: "test",
 						thing: 123,
 					},
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			tlsOptions: {
@@ -93,11 +93,11 @@ describe("mergeConfig", function () {
 			merge(
 				{
 					optionOne: 123,
-				} as TestConfig,
+				},
 				{
 					optionOne: 456,
 					optionTwo: 789,
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			optionOne: 456,
@@ -114,13 +114,13 @@ describe("mergeConfig", function () {
 					optionOne: {
 						subOne: 123,
 					},
-				} as TestConfig,
+				},
 				{
 					optionOne: {
 						subOne: 123,
 						subTwo: 123,
 					},
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			optionOne: {
@@ -135,10 +135,10 @@ describe("mergeConfig", function () {
 			merge(
 				{
 					oidentd: null,
-				} as TestConfig,
+				},
 				{
 					oidentd: "some path",
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			oidentd: "some path",
@@ -150,13 +150,13 @@ describe("mergeConfig", function () {
 			merge(
 				{
 					webirc: null,
-				} as TestConfig,
+				},
 				{
 					webirc: {
 						serverone: "password",
 						servertwo: "password2",
 					},
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			webirc: {
@@ -173,12 +173,12 @@ describe("mergeConfig", function () {
 			merge(
 				{
 					webirc: null,
-				} as TestConfig,
+				},
 				{
 					webirc: {
 						servercb: callbackFunction,
 					},
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			webirc: {
@@ -201,7 +201,7 @@ describe("mergeConfig", function () {
 							newThing: "but also this",
 						},
 					},
-				} as TestConfig,
+				},
 				{
 					nestedOnce: {},
 					nestedTwice: {
@@ -209,7 +209,7 @@ describe("mergeConfig", function () {
 							otherThing: "overridden",
 						},
 					},
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			nestedOnce: {
@@ -230,10 +230,10 @@ describe("mergeConfig", function () {
 			merge(
 				{
 					test: ["sqlite", "text"],
-				} as TestConfig,
+				},
 				{
 					test: ["sqlite"],
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			test: ["sqlite"],
@@ -243,10 +243,10 @@ describe("mergeConfig", function () {
 			merge(
 				{
 					test: ["sqlite", "text"],
-				} as TestConfig,
+				},
 				{
 					test: [],
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			test: [],
@@ -258,10 +258,10 @@ describe("mergeConfig", function () {
 			merge(
 				{
 					test: ["sqlite", "text"],
-				} as TestConfig,
+				},
 				{
 					test: ["text", "sqlite"],
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			test: ["text", "sqlite"],
@@ -284,10 +284,10 @@ describe("mergeConfig", function () {
 					shouldBeObject: {
 						thing: "yes",
 					},
-				} as TestConfig,
+				},
 				{
 					shouldBeObject: "bad type",
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			shouldBeObject: {
@@ -299,10 +299,10 @@ describe("mergeConfig", function () {
 			merge(
 				{
 					shouldBeString: "string",
-				} as TestConfig,
+				},
 				{
 					shouldBeString: 1234567,
-				} as TestConfig
+				}
 			)
 		).to.deep.equal({
 			shouldBeString: "string",

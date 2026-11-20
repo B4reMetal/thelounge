@@ -27,9 +27,7 @@ type ContextMenuDividerItem = {
 };
 
 export type ContextMenuItem =
-	| ContextMenuItemWithAction
-	| ContextMenuItemWithLink
-	| ContextMenuDividerItem;
+	ContextMenuItemWithAction | ContextMenuItemWithLink | ContextMenuDividerItem;
 
 export function generateChannelContextMenu(
 	channel: ClientChan,

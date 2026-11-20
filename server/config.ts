@@ -264,7 +264,7 @@ class Config {
 		}
 
 		const {torrentSites, defaultTorrentSiteInfo, ...rest} = legacy;
-		const config = rest as ConfigType;
+		const config = rest;
 
 		if (torrentSites === undefined) {
 			// Only the default profile path was set, which the built-in

@@ -892,7 +892,7 @@ export default defineComponent({
 		watch(
 			() => ({
 				chanId: props.channel.id,
-				first: props.channel.messages[0] as ClientMessage | undefined,
+				first: props.channel.messages[0],
 			}),
 			async (now, before) => {
 				if (

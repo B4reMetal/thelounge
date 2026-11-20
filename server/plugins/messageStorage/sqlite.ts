@@ -856,8 +856,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		await this.flushBatch();
 
 		const upto = this.database.prepare("SELECT max(id) FROM messages").pluck().get() as
-			| number
-			| null;
+			number | null;
 
 		if (upto === null) {
 			return;

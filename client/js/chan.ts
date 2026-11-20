@@ -1,5 +1,5 @@
 import {markRaw, reactive} from "vue";
-import {ClientChan, ClientMessage} from "./types";
+import {ClientChan, ClientMessage, ClientNetwork} from "./types";
 import {SharedNetworkChan} from "../../shared/types/network";
 import {SharedMsg, MessageType} from "../../shared/types/msg";
 import {ChanType} from "../../shared/types/chan";
@@ -266,6 +266,21 @@ export function cancelPendingJump(chanId: number): void {
 export function cancelAllPendingJumps(): void {
 	for (const chanId of [...pendingJumps.keys()]) {
 		cancelPendingJump(chanId);
+	}
+}
+
+/**
+ * Gives up every history request still waiting for an answer, for when the
+ * connection to the server is lost. Their answers won't come, and a channel
+ * left loading can't ask for older messages again.
+ */
+export function cancelAllHistoryRequests(networks: ClientNetwork[]): void {
+	cancelAllPendingJumps();
+
+	for (const network of networks) {
+		for (const channel of network.channels) {
+			channel.historyLoading = false;
+		}
 	}
 }
 

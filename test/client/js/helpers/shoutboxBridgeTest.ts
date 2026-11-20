@@ -100,6 +100,18 @@ describe("shoutbox bridge parser", function () {
 		expect(parser(message, otherNetwork, channel("#General"))).to.equal(message);
 	});
 
+	it("ends a SkipTheCommercial nick at the first colon", function () {
+		const stc = {trackers: [site("STC")]};
+		const result = parser(msg("unit3dbridge", "bob: look at this: cool"), stc, channel("#stc"));
+
+		expect(result.from).to.include({nick: "bob", tracker: "STC"});
+		expect(result.text).to.equal("look at this: cool");
+
+		// Text before a colon that can't be a nick is not taken for one
+		const plain = msg("unit3dbridge", "look at this: cool");
+		expect(parser(plain, stc, channel("#stc"))).to.equal(plain);
+	});
+
 	it("leaves disabled matchers out, on every network", function () {
 		for (const [nick, text] of [
 			["dreadvaultbot", "[admin] hello"],

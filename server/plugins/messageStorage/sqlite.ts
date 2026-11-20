@@ -818,6 +818,10 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 			return;
 		}
 
+		// Write out queued rows first, or they land after the delete and the
+		// cleared history comes back
+		await this.flushBatch();
+
 		await this.serialize_run(
 			"DELETE FROM messages WHERE network = ? AND channel = ?",
 			network.uuid,

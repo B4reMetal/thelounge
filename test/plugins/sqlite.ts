@@ -622,6 +622,19 @@ describe("SQLite Message Storage", function () {
 		expect(msg.time.getTime()).to.equal(123456789);
 	});
 
+	it("should not bring back queued messages after deleting a channel", async function () {
+		const net = testNet("delete-queued-network");
+		const chan = testChan("#queued");
+
+		// Still in the batch queue when the channel is deleted
+		await store.index(net, chan, new Msg({time: new Date(123456789), text: "queued"}));
+		await store.deleteChannel(net, chan);
+
+		// Reading flushes whatever is still queued
+		const messages = await store.getMessages(net, chan, () => 0);
+		expect(messages).to.have.lengthOf(0);
+	});
+
 	it("should retrieve latest LIMIT messages in order", async function () {
 		const originalMaxHistory = Config.values.maxHistory;
 

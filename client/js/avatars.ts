@@ -20,6 +20,11 @@ import {store} from "./store";
 
 const avatars = new Map<string, string>(); // `${tracker}:${nick lowercased}` → url
 
+// Initials first, avatars after: an avatar rule also clears the initials
+const initialsStyle = document.createElement("style");
+initialsStyle.id = "tl-initials";
+document.head.appendChild(initialsStyle);
+
 const style = document.createElement("style");
 style.id = "tl-avatars";
 document.head.appendChild(style);
@@ -38,8 +43,10 @@ function render() {
 	requestAnimationFrame(() => {
 		renderQueued = false;
 
-		// Chat views (#chan-<id>) of the networks each tracker's users chat on
+		// Where each tracker's avatars apply: the chat views (#chan-<id>) of its
+		// networks, and those networks' private-message rows in the sidebar
 		const views = new Map<string, string[]>();
+		const sidebars = new Map<string, string[]>();
 
 		for (const network of store.state.networks) {
 			for (const tracker of network.trackers || []) {
@@ -47,9 +54,14 @@ function render() {
 					continue;
 				}
 
-				const list = views.get(tracker.id) || [];
-				list.push(...network.channels.map((c) => `#chan-${c.id}`));
-				views.set(tracker.id, list);
+				views.set(tracker.id, [
+					...(views.get(tracker.id) || []),
+					...network.channels.map((c) => `#chan-${c.id}`),
+				]);
+				sidebars.set(tracker.id, [
+					...(sidebars.get(tracker.id) || []),
+					`#network-${CSS.escape(network.uuid)}`,
+				]);
 			}
 		}
 
@@ -57,21 +69,79 @@ function render() {
 
 		for (const [key, url] of avatars) {
 			const sep = key.indexOf(":");
-			const ids = views.get(key.slice(0, sep));
+			const tracker = key.slice(0, sep);
+			const ids = views.get(tracker);
+			const nets = sidebars.get(tracker);
 
-			if (!ids || ids.length === 0) {
+			if (!ids || !nets) {
 				continue;
 			}
+
+			const nick = cssString(key.slice(sep + 1));
 
 			// Absolute: a relative url() in a custom property resolves against the stylesheet
 			// that uses it (the theme's), not this page
 			const absolute = new URL(url, document.baseURI).href;
-			css += `:is(${ids.join(",")}) .user[data-name="${cssString(key.slice(sep + 1))}" i]{--tl-avatar:url("${cssString(absolute)}")}\n`;
+			const selectors = [
+				...(ids.length ? [`:is(${ids.join(",")}) .user[data-name="${nick}" i]`] : []),
+				`:is(${nets.join(",")}) .channel-list-item[data-type="query"][data-name="${nick}" i]`,
+			];
+			css += `${selectors.join(",")}{--tl-avatar:url("${cssString(absolute)}");--tl-initials:""}\n`;
 		}
 
 		style.textContent = css;
 	});
 }
+
+// --- Initials for names without an avatar: BareMetal → BM, sable → S ---
+
+export function initialsFor(nick: string): string {
+	const words = nick
+		.replace(/([\p{Ll}\p{N}])(\p{Lu})/gu, "$1 $2") // camelCase → camel Case
+		.split(/[^\p{L}\p{N}]+/u)
+		.filter(Boolean);
+	const letters = words.map((w) => w[0]).join("");
+	return (letters || nick.slice(0, 1)).slice(0, 2).toUpperCase();
+}
+
+const knownNames = new Set<string>();
+let initialsQueued = false;
+
+function scanNames() {
+	initialsQueued = false;
+	let added = false;
+
+	for (const el of document.querySelectorAll<HTMLElement>(
+		'.user[data-name], .channel-list-item[data-type="query"][data-name]'
+	)) {
+		const name = el.dataset.name;
+
+		if (name && !knownNames.has(name.toLowerCase())) {
+			knownNames.add(name.toLowerCase());
+			added = true;
+		}
+	}
+
+	if (!added) {
+		return;
+	}
+
+	let css = "";
+
+	for (const name of knownNames) {
+		const n = cssString(name);
+		css += `.user[data-name="${n}" i],.channel-list-item[data-type="query"][data-name="${n}" i]{--tl-initials:"${cssString(initialsFor(name))}"}\n`;
+	}
+
+	initialsStyle.textContent = css;
+}
+
+new MutationObserver(() => {
+	if (!initialsQueued) {
+		initialsQueued = true;
+		setTimeout(scanNames, 300);
+	}
+}).observe(document.body, {childList: true, subtree: true});
 
 socket.on("init", () => {
 	// The server sends the full list again after init

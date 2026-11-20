@@ -175,13 +175,17 @@ export default <IrcEventHandler>function (this: Client, irc, network) {
 
 		chan.pushMessage(this, msg, !msg.self);
 
-		// People who speak are the ones worth showing an avatar for
+		// People who speak (in channels and private messages) are the ones worth showing an avatar for
 		if (
 			!msg.self &&
-			chan.type === ChanType.CHANNEL &&
+			(chan.type === ChanType.CHANNEL || chan.type === ChanType.QUERY) &&
 			[MessageType.MESSAGE, MessageType.ACTION].includes(data.type)
 		) {
-			avatars.noteSpeaker(network, data.nick, chan.name);
+			avatars.noteSpeaker(
+				network,
+				data.nick,
+				chan.type === ChanType.QUERY ? {query: true} : {channel: chan.name}
+			);
 		}
 
 		// Same messages the client notifies about with "Notify for all messages" on

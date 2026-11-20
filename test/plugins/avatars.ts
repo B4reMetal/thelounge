@@ -90,9 +90,20 @@ describe("Avatars", function () {
 	});
 
 	it("queues people who speak, only on networks of a tracker with avatars", function () {
-		avatars.noteSpeaker({host: "irc.seedpool.org"}, "Iroha", "#seedpool");
-		avatars.noteSpeaker({host: "irc.example.org"}, "Someone", "#example");
+		avatars.noteSpeaker({host: "irc.seedpool.org"}, "Iroha", {channel: "#seedpool"});
+		avatars.noteSpeaker({host: "irc.example.org"}, "Someone", {channel: "#example"});
 		expect(avatars.getQueue().map((j) => j.nick)).to.deep.equal(["Iroha"]);
+	});
+
+	it("counts private messages only for trackers that cover the whole network", function () {
+		avatars.noteSpeaker({host: "irc.seedpool.org"}, "PmUser", {query: true});
+		expect(avatars.getQueue().map((j) => j.nick)).to.deep.equal(["PmUser"]);
+
+		Config.values.trackers!.SP!.channels = ["#seedpool"];
+		avatars.noteSpeaker({host: "irc.seedpool.org"}, "PmOther", {query: true});
+		avatars.noteSpeaker({host: "irc.seedpool.org"}, "Elsewhere", {channel: "#other"});
+		avatars.noteSpeaker({host: "irc.seedpool.org"}, "InChannel", {channel: "#SeedPool"});
+		expect(avatars.getQueue().map((j) => j.nick)).to.deep.equal(["PmUser", "InChannel"]);
 	});
 
 	it("ignores odd nicks", function () {
@@ -312,7 +323,7 @@ describe("Avatars", function () {
 
 	it("does nothing when turned off", function () {
 		Config.values.avatars.enable = false;
-		avatars.noteSpeaker({host: "irc.seedpool.org"}, "Iroha", "#seedpool");
+		avatars.noteSpeaker({host: "irc.seedpool.org"}, "Iroha", {channel: "#seedpool"});
 		expect(avatars.getQueue()).to.have.length(0);
 		expect(avatars.listFor(user)).to.deep.equal([]);
 	});

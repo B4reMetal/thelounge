@@ -574,10 +574,15 @@ function initializeClient(
 		const network = client.networks.find((n) => n.uuid === data.network);
 
 		if (network) {
-			for (const tracker of avatars.trackersFor(
-				network,
-				typeof data.channel === "string" ? data.channel : undefined
-			)) {
+			const chan =
+				typeof data.channel === "string" ? network.getChannel(data.channel) : undefined;
+			const scope = !chan
+				? undefined
+				: chan.type === ChanType.QUERY
+					? {query: true}
+					: {channel: chan.name};
+
+			for (const tracker of avatars.trackersFor(network, scope)) {
 				avatars.want(tracker, data.nick, 1);
 			}
 		}

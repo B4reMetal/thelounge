@@ -44,6 +44,9 @@ export type AvatarResult = {
 
 export type AvatarUpdate = {tracker: string; nick: string; url: string | null};
 
+// Where someone spoke or was opened: a channel (by name) or a private message
+export type AvatarScope = {channel?: string; query?: boolean};
+
 type Fetcher = {
 	socketId: string;
 	userName: string;
@@ -178,25 +181,36 @@ class Avatars {
 		return t.avatarUrl.replace(trackerNickPlaceholder, encodeURIComponent(nick));
 	}
 
-	/** Trackers with avatars whose users chat on this network (and channel, if given). */
-	trackersFor(network: AvatarUser["networks"][number], channel?: string): string[] {
+	/**
+	 * Trackers with avatars whose users chat on this network. With a scope,
+	 * only those that apply there: in a channel, trackers without a channel
+	 * list or that list it; in a private message, only trackers without a
+	 * channel list (the same rule as tracker profile links).
+	 */
+	trackersFor(network: AvatarUser["networks"][number], scope?: AvatarScope): string[] {
 		const trackers =
 			Config.getTrackersForHost(network.host, network.irc?.network?.server) || [];
-		const chan = channel?.toLowerCase();
+		const chan = scope?.channel?.toLowerCase();
 
 		return trackers
 			.filter((t) => t.avatars)
-			.filter((t) => !t.channels || !chan || t.channels.some((c) => c.toLowerCase() === chan))
+			.filter((t) => {
+				if (!t.channels || !scope) {
+					return true;
+				}
+
+				return !scope.query && !!chan && t.channels.some((c) => c.toLowerCase() === chan);
+			})
 			.map((t) => t.id);
 	}
 
-	/** Someone spoke in a channel: look them up if we don't know their avatar yet. */
-	noteSpeaker(network: AvatarUser["networks"][number], nick: string, channel: string) {
+	/** Someone spoke: look them up if we don't know their avatar yet. */
+	noteSpeaker(network: AvatarUser["networks"][number], nick: string, scope: AvatarScope) {
 		if (!this.enabled) {
 			return;
 		}
 
-		for (const tracker of this.trackersFor(network, channel)) {
+		for (const tracker of this.trackersFor(network, scope)) {
 			this.want(tracker, nick, 0);
 		}
 	}

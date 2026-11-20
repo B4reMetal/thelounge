@@ -37,6 +37,10 @@ export default <IrcEventHandler>function (irc, network) {
 				// Not in mass event mode - process normally
 				chan.pushMessage(this, msg);
 				updateUserList();
+			} else {
+				// The browser removes users when the quit message arrives; a captured
+				// quit sends none, so tell it the list changed
+				this.usersChanged(chan);
 			}
 		});
 

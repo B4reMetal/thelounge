@@ -25,8 +25,6 @@ export default <IrcEventHandler>function (irc, network) {
 
 		chan.users = newUsers;
 
-		this.emit("users", {
-			chan: chan.id,
-		});
+		this.usersChanged(chan);
 	});
 };

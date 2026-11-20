@@ -44,7 +44,7 @@ program
 	.command("downgrade")
 	.argument(
 		"<version>",
-		`schema version to go back to, or a name: "stock" (${namedSchemaVersions.stock}, stock The Lounge 4.5.x and the official Docker image) or "tetra" (${namedSchemaVersions.tetra}, stock 4.4.x and tetrahydroc/thelounge)`
+		`schema version to go back to, or a name: "stock" (${namedSchemaVersions.stock}, stock The Lounge 4.5.x and the official Docker image), "stock-4.6" (${namedSchemaVersions["stock-4.6"]}, stock The Lounge 4.6.x) or "tetra" (${namedSchemaVersions.tetra}, stock 4.4.x and tetrahydroc/thelounge)`
 	)
 	.argument("[username]", "downgrade a specific user only, all if not provided")
 	.description(
@@ -57,6 +57,7 @@ program
 		for (const m of migrations) {
 			const notes = [
 				m.version === namedSchemaVersions.stock ? "stock: The Lounge 4.5.x" : "",
+				m.version === namedSchemaVersions["stock-4.6"] ? "stock-4.6: The Lounge 4.6.x" : "",
 				m.version === namedSchemaVersions.tetra
 					? "tetra: The Lounge 4.4.x, tetrahydroc"
 					: "",

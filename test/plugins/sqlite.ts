@@ -290,16 +290,25 @@ describe("SQLite downgrades", function () {
 	});
 
 	// What each build creates for a new database, besides the four tables
+	const plainColumns = ["id", "network", "channel", "time", "type", "msg"];
 	const targets = [
 		{
 			name: "stock",
 			version: namedSchemaVersions.stock,
 			indexes: ["msg_type_idx", "network_channel_time", "time"],
+			columns: plainColumns,
+		},
+		{
+			name: "stock-4.6",
+			version: namedSchemaVersions["stock-4.6"],
+			indexes: ["msg_type_idx", "msgid_idx", "network_channel_time", "time"],
+			columns: [...plainColumns, "msgid"],
 		},
 		{
 			name: "tetra",
 			version: namedSchemaVersions.tetra,
 			indexes: ["msg_type_idx", "network_channel", "time"],
+			columns: plainColumns,
 		},
 	];
 
@@ -313,6 +322,11 @@ describe("SQLite downgrades", function () {
 				"table rollback_steps",
 			].sort()
 		);
+		expect(
+			(store.database.prepare("PRAGMA table_info(messages)").all() as {name: string}[]).map(
+				(c) => c.name
+			)
+		).to.deep.equal(target.columns);
 
 		// The version an older build checks before it opens the database
 		expect(await store.current_version()).to.equal(target.version);
@@ -379,11 +393,13 @@ describe("SQLite downgrades", function () {
 		);
 
 		// Leave the index to be built in the background, then go back down,
-		// with that message still waiting in the write batch
-		await store.downgrade_to(namedSchemaVersions.stock);
+		// with that message still waiting in the write batch. Stock 4.6 keeps
+		// the msgid column, which search on an open store reads.
+		const target = namedSchemaVersions["stock-4.6"];
+		await store.downgrade_to(target);
 		await store.run_migrations();
 		expect(store.searchIndexReady).to.equal(false);
-		await store.downgrade_to(namedSchemaVersions.stock);
+		await store.downgrade_to(target);
 
 		expect(store.searchIndexReady).to.equal(false);
 		const found = await store.search({
@@ -396,13 +412,16 @@ describe("SQLite downgrades", function () {
 
 		// Nothing left scheduled to run into the dropped tables
 		await new Promise((r) => setTimeout(r, 50));
-		await expectSchemaOf(targets[0]);
+		await expectSchemaOf(targets[1]);
 	});
 
-	it("should go from stock down to tetra", async function () {
-		await store.downgrade_to(namedSchemaVersions.stock);
-		await store.downgrade_to(namedSchemaVersions.tetra);
+	it("should go from stock 4.6 down to stock 4.5, then tetra", async function () {
+		await store.downgrade_to(namedSchemaVersions["stock-4.6"]);
 		await expectSchemaOf(targets[1]);
+		await store.downgrade_to(namedSchemaVersions.stock);
+		await expectSchemaOf(targets[0]);
+		await store.downgrade_to(namedSchemaVersions.tetra);
+		await expectSchemaOf(targets[2]);
 	});
 
 	it("should refuse versions it can't downgrade to", async function () {

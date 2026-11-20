@@ -95,6 +95,9 @@ export const currentSchemaVersion = 1795000000000; // use `new Date().getTime()`
 export const namedSchemaVersions = {
 	// Stock The Lounge 4.5.x, e.g. the official thelounge/thelounge image
 	stock: 1780272000000,
+	// Stock The Lounge 4.6.x. Its message ids don't survive: this fork's
+	// versions sit above it, and going back past them drops the column.
+	"stock-4.6": 1784073600000,
 	// Stock The Lounge 4.4.x and tetrahydroc/thelounge (and images built from
 	// it, such as cmd430/docker-thelounge)
 	tetra: 1703322560448,

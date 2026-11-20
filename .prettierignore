@@ -12,7 +12,6 @@ test/fixtures/.thelounge/sts-policies.json
 *.svg
 *.ico
 *.wav
-*.tpl
 *.sh
 *.opts
 *.txt

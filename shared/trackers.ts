@@ -27,6 +27,22 @@ export function isUsableProfileUrl(url: unknown): url is string {
 }
 
 /**
+ * An avatar address the server can hand to a fetcher: https only, with a place
+ * for the nick.
+ */
+export function isUsableAvatarUrl(url: unknown): url is string {
+	if (typeof url !== "string" || !url.includes(trackerNickPlaceholder)) {
+		return false;
+	}
+
+	try {
+		return new URL(url.replace(trackerNickPlaceholder, "nick")).protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
+/**
  * A tracker entry from a user's own settings (`userTrackers`). One whose `id`
  * and `network` are those of a tracker from config.js changes that tracker's
  * profile link for this user (or hides it); any other adds a tracker.

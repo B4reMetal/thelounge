@@ -60,6 +60,10 @@ export type TrackerConfig = {
 	// What the hostname of the tracker's users looks like, `*` for any text.
 	// Only checked for `{ident}` addresses.
 	userHost?: string;
+	// Address of a user's avatar image, with `{nick}` where the nick goes.
+	// Fetched by a browser that is logged in to the tracker (the avatar
+	// userscript), throttled and cached by the server. See `avatars`.
+	avatarUrl?: string;
 	disabled?: boolean;
 };
 
@@ -83,6 +87,8 @@ export type TrackerInfo = {
 	// Absent when the tracker has no usable profile address
 	profileUrl?: string;
 	userHost?: string;
+	// True when the server caches avatars for this tracker's users
+	avatars?: boolean;
 };
 
 // The placeholders in `profileUrl` are in shared/trackers.ts

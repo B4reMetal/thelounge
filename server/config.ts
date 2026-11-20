@@ -16,7 +16,7 @@ import {
 	type TrackerConfig,
 	type TrackerInfo,
 } from "../shared/types/network.js";
-import {isUsableProfileUrl, trackerNickPlaceholder} from "../shared/trackers.js";
+import {isUsableAvatarUrl, isUsableProfileUrl, trackerNickPlaceholder} from "../shared/trackers.js";
 
 export type WebIRC = {
 	[key: string]: unknown;
@@ -76,6 +76,13 @@ type Ldap = {
 	baseDN?: string;
 };
 
+export type Avatars = {
+	enable: boolean;
+	ratePerMinute: number;
+	refreshDays: number;
+	notFoundDays: number;
+};
+
 type Debug = {
 	logs: boolean;
 	ircFramework: boolean;
@@ -125,6 +132,7 @@ export type ConfigType = {
 	useHexIp: boolean;
 	webirc?: WebIRC;
 	trackers: Record<string, TrackerConfig | null> | null;
+	avatars: Avatars;
 	identd: Identd;
 	oidentd?: string;
 	ldap: Ldap;
@@ -184,6 +192,10 @@ class Config {
 				if (typeof tracker!.userHost === "string" && tracker!.userHost) {
 					info.userHost = tracker!.userHost;
 				}
+			}
+
+			if (this.values.avatars?.enable && isUsableAvatarUrl(tracker!.avatarUrl)) {
+				info.avatars = true;
 			}
 
 			result.push(info);

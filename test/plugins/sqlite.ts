@@ -805,6 +805,10 @@ describe("SQLite Message Storage", function () {
 		// Reading flushes whatever is still queued
 		const messages = await store.getMessages(net, chan, () => 0);
 		expect(messages).to.have.lengthOf(0);
+
+		// Also once the rows are really gone, and the clear is done for the tests after
+		await store.finishClearingHistory();
+		expect(await store.getMessages(net, chan, () => 0)).to.have.lengthOf(0);
 	});
 
 	it("should retrieve latest LIMIT messages in order", async function () {
@@ -1128,6 +1132,7 @@ describe("SQLite Message Storage", function () {
 	it("should drop deleted messages from the index", async function () {
 		const before = indexHits("quick");
 		await store.deleteChannel(ftsNet, ftsOther);
+		await store.finishClearingHistory();
 
 		expect(indexHits("quick")).to.equal(before - 1);
 		expect(await findEveryWay("elsewhere", ftsOther.name)).to.deep.equal([]);

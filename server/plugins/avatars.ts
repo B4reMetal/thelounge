@@ -508,7 +508,12 @@ class Avatars {
 				return;
 			}
 
-			this.markNone(job, now);
+			const why = !data
+				? `no image data (${type || "no content type"}; the fetcher sends at most ${avatarLimits.maxBytes / 1024} KiB)`
+				: data.length > avatarLimits.maxBytes
+					? `image too big (${Math.round(data.length / 1024)} KiB)`
+					: `not a PNG, JPEG, GIF or WebP image (${type || "no content type"})`;
+			this.markNone(job, now, why);
 			return;
 		}
 
@@ -524,7 +529,7 @@ class Avatars {
 		}
 
 		// 404 and other client errors: no avatar
-		this.markNone(job, now);
+		this.markNone(job, now, `HTTP ${status}`);
 	}
 
 	private resetBackoff(tracker: string) {
@@ -578,7 +583,9 @@ class Avatars {
 		}
 	}
 
-	private markNone(job: Job, now: number) {
+	private markNone(job: Job, now: number, why: string) {
+		log.info(`Avatars: no ${job.tracker} avatar for ${job.nick}: ${why}`);
+
 		const old = this.entries.get(job.key);
 
 		if (old?.file) {

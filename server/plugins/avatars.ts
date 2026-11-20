@@ -278,6 +278,13 @@ class Avatars {
 		}
 
 		const existing = this.fetchers.get(socketId);
+
+		if (!existing) {
+			log.info(
+				`Avatars: a browser of ${userName} can fetch avatars from ${clean.join(", ")}`
+			);
+		}
+
 		this.fetchers.set(socketId, {
 			socketId,
 			userName,
@@ -544,6 +551,7 @@ class Avatars {
 			seenAt: old?.seenAt || now,
 		});
 		this.scheduleSave();
+		log.info(`Avatars: cached the ${job.tracker} avatar of ${job.nick}`);
 
 		if (old?.file !== file) {
 			this.broadcast(job.tracker, [

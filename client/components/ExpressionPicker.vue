@@ -82,7 +82,11 @@
 						</button>
 					</nav>
 					<div ref="emojiGrid" class="emoji-picker-grid">
-						<section v-for="group in shownEmojiGroups" :key="group.id">
+						<section
+							v-for="group in renderedEmojiGroups"
+							:key="group.id"
+							class="emoji-picker-section"
+						>
 							<button
 								type="button"
 								class="emoji-picker-group"
@@ -376,6 +380,30 @@ export default defineComponent({
 				: [];
 		});
 
+		// Drawing every emoji at once is slow (each is a colour glyph): the first
+		// sections show right away, the rest a frame at a time after
+		const renderedCount = ref(2);
+		let renderTimer = 0;
+
+		const renderedEmojiGroups = computed(() =>
+			emojiSearch.value
+				? shownEmojiGroups.value
+				: emojiGroups.value.slice(0, renderedCount.value)
+		);
+
+		const renderRest = () => {
+			cancelAnimationFrame(renderTimer);
+
+			const step = () => {
+				if (renderedCount.value < emojiGroups.value.length) {
+					renderedCount.value++;
+					renderTimer = requestAnimationFrame(step);
+				}
+			};
+
+			renderTimer = requestAnimationFrame(() => (renderTimer = requestAnimationFrame(step)));
+		};
+
 		const pickEmoji = (item: Item, e?: MouseEvent) => {
 			recent.value = [item.name, ...recent.value.filter((n) => n !== item.name)].slice(0, 27);
 			storage.set("emojiRecent", JSON.stringify(recent.value));
@@ -404,13 +432,23 @@ export default defineComponent({
 
 		const scrollToGroup = (id: string) => {
 			collapsed.delete(id);
-			void nextTick(() => {
+			renderedCount.value = emojiGroups.value.length;
+
+			// Sections not drawn yet only have an estimated height: scroll again once
+			// the ones passed over have been laid out
+			const jump = (times: number) => {
 				const header = emojiGrid.value?.querySelector<HTMLElement>(`[data-group="${id}"]`);
 
 				if (header && emojiGrid.value) {
 					emojiGrid.value.scrollTop = header.parentElement!.offsetTop;
 				}
-			});
+
+				if (times > 1) {
+					requestAnimationFrame(() => jump(times - 1));
+				}
+			};
+
+			void nextTick(() => jump(3));
 		};
 
 		// --- GIFs ---
@@ -563,6 +601,9 @@ export default defineComponent({
 
 			if (next === "gifs") {
 				void loadTiles();
+			} else {
+				renderedCount.value = 2;
+				renderRest();
 			}
 		};
 
@@ -583,6 +624,7 @@ export default defineComponent({
 		onBeforeUnmount(() => {
 			document.removeEventListener("mousedown", onOutside, true);
 			socket.off("gifs:results", onResults);
+			cancelAnimationFrame(renderTimer);
 			clearTimeout(debounce);
 		});
 
@@ -598,6 +640,7 @@ export default defineComponent({
 			emojiGrid,
 			emojiGroups,
 			shownEmojiGroups,
+			renderedEmojiGroups,
 			pickEmoji,
 			pickFirstEmoji,
 			toggleGroup,

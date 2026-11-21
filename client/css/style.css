@@ -1708,6 +1708,10 @@ textarea.input {
 	padding-left: 10px;
 }
 
+.header .title-online {
+	display: none;
+}
+
 .header .topic {
 	color: var(--body-color-muted);
 	margin-left: 8px;

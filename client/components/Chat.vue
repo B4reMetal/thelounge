@@ -21,6 +21,16 @@
 					<span class="title" :aria-label="'Currently open ' + channel.type">{{
 						channel.name
 					}}</span>
+					<!-- Hidden unless a theme shows it: "9 online", opens the member list -->
+					<button
+						v-if="channel.type === 'channel'"
+						type="button"
+						class="title-online"
+						:aria-label="`${onlineCount} online, show the member list`"
+						@click="store.commit('toggleUserlist')"
+					>
+						{{ onlineCount }} online
+					</button>
 					<div v-if="channel.editTopic === true" class="topic-container">
 						<input
 							ref="topicInput"
@@ -164,6 +174,9 @@ export default defineComponent({
 		const messageList = ref<InstanceType<typeof MessageList> | null>(null);
 		const topicInput = ref<HTMLInputElement | null>(null);
 
+		// Members not marked away
+		const onlineCount = computed(() => props.channel.users.filter((u) => !u.away).length);
+
 		const plainTopic = computed(() => {
 			const topic = props.channel.topic;
 
@@ -275,6 +288,7 @@ export default defineComponent({
 		});
 
 		return {
+			onlineCount,
 			store,
 			messageList,
 			topicInput,

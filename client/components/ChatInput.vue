@@ -38,7 +38,7 @@
 				:disabled="!store.state.isConnected"
 			/>
 		</span>
-		<EmojiPicker @pick="insertText" />
+		<ExpressionPicker @pick="insertText" @send-gif="sendGif" />
 		<span
 			id="submit-tooltip"
 			class="tooltipped tooltipped-w tooltipped-no-touch"
@@ -66,7 +66,7 @@ import {watch, defineComponent, nextTick, onMounted, PropType, ref, onUnmounted}
 import type {ClientNetwork, ClientChan} from "../js/types";
 import {useStore} from "../js/store";
 import {ChanType} from "../../shared/types/chan";
-import EmojiPicker from "./EmojiPicker.vue";
+import ExpressionPicker from "./ExpressionPicker.vue";
 
 const formattingHotkeys = {
 	"mod+k": "\x03",
@@ -96,7 +96,7 @@ const bracketWraps = {
 
 export default defineComponent({
 	name: "ChatInput",
-	components: {EmojiPicker},
+	components: {ExpressionPicker},
 	props: {
 		network: {type: Object as PropType<ClientNetwork>, required: true},
 		channel: {type: Object as PropType<ClientChan>, required: true},
@@ -133,6 +133,11 @@ export default defineComponent({
 			props.channel.pendingMessage = (e.target as HTMLInputElement).value;
 			props.channel.inputHistoryPosition = 0;
 			setInputSize();
+		};
+
+		// A GIF from the picker goes out right away, as a link
+		const sendGif = (url: string) => {
+			socket.emit("input", {target: props.channel.id, text: url});
 		};
 
 		// Puts text (e.g. an emoji from the picker) at the cursor, replacing any selection
@@ -425,6 +430,7 @@ export default defineComponent({
 			onSubmit,
 			setPendingMessage,
 			insertText,
+			sendGif,
 		};
 	},
 });

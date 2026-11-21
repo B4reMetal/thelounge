@@ -80,6 +80,14 @@ interface ServerToClientEvents {
 	"avatars:update": EventHandler<{tracker: string; nick: string; url: string | null}[]>;
 	"avatars:fetch": EventHandler<{id: string; url: string; ifModifiedSince?: string}>;
 
+	// GIF picker results (see server/plugins/gifs.ts)
+	"gifs:results": EventHandler<{
+		id: string;
+		items: import("./gifs").Gif[];
+		next: string | null;
+		error?: string;
+	}>;
+
 	open: (id: number) => void;
 
 	part: EventHandler<{chan: number}>;
@@ -171,6 +179,7 @@ interface ClientToServerEvents {
 	"pin:change": EventHandler<{target: number; setPinnedTo: boolean}>;
 	"tracker:user": EventHandler<{target: number; nick: string}>;
 
+	"gifs:search": EventHandler<{id: string; q: string; pos?: string | null}>;
 	"avatars:fetcher": EventHandler<{hosts: string[]}>;
 	"avatars:want": EventHandler<{network: string; nick: string; channel?: string}>;
 	"avatars:result": EventHandler<{

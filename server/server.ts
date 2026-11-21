@@ -42,6 +42,7 @@ import {
 } from "../shared/types/config.js";
 import {userTrackerLimits, userTrackersSetting} from "../shared/trackers.js";
 import {sanitizeThemeOptionsSetting} from "../shared/themeOptions.js";
+import {allowGifSearch, gifProvider, searchGifs, type Gif} from "./plugins/gifs.js";
 
 type ServerOptions = {
 	dev: boolean;
@@ -473,7 +474,14 @@ function addSecurityHeaders(_req: Request, res: Response, next: NextFunction) {
 	// - https://user-images.githubusercontent.com is where we currently push our changelog screenshots
 	// - data: is required for the HTML5 video player
 	if (Config.values.prefetchStorage || !Config.values.prefetch) {
-		policies.push("img-src 'self' data: https://user-images.githubusercontent.com");
+		// The GIF picker shows the provider's images directly
+		const gifHosts = {
+			giphy: " https://*.giphy.com",
+			tenor: " https://media.tenor.com https://c.tenor.com",
+		}[gifProvider() || ""];
+		policies.push(
+			`img-src 'self' data: https://user-images.githubusercontent.com${gifHosts || ""}`
+		);
 		policies.unshift("block-all-mixed-content");
 	} else {
 		policies.push("img-src http: https: data:");
@@ -551,6 +559,34 @@ function initializeClient(
 	socket.on("disconnect", function () {
 		avatars.unregisterFetcher(socket.id);
 		process.nextTick(() => client.clientDetach(socket.id));
+	});
+
+	// GIF picker: the server searches the provider, so browsers never talk to it
+	socket.on("gifs:search", (data) => {
+		if (
+			!_.isPlainObject(data) ||
+			typeof data.id !== "string" ||
+			data.id.length > 64 ||
+			typeof data.q !== "string"
+		) {
+			return;
+		}
+
+		const pos = typeof data.pos === "string" && data.pos.length < 200 ? data.pos : null;
+		const reply = (r: {items: Gif[]; next: string | null; error?: string}) =>
+			socket.emit("gifs:results", {id: data.id, ...r});
+
+		if (!gifProvider()) {
+			return reply({items: [], next: null, error: "GIFs are off on this server"});
+		}
+
+		if (!allowGifSearch(client.name)) {
+			return reply({items: [], next: null, error: "Too many searches, wait a moment"});
+		}
+
+		searchGifs(data.q, pos)
+			.then((page) => reply(page))
+			.catch(() => reply({items: [], next: null, error: "GIF search failed"}));
 	});
 
 	// Tracker avatars: a browser logged in to a tracker offers to fetch for us
@@ -1186,6 +1222,7 @@ function initializeClient(
 function getClientConfiguration(): SharedConfiguration | LockedSharedConfiguration {
 	const common = {
 		fileUpload: Config.values.fileUpload.enable,
+		gifs: gifProvider(),
 		ldapEnabled: Config.values.ldap.enable,
 		isUpdateAvailable: changelog.isUpdateAvailable,
 		applicationServerKey: manager!.webPush.vapidKeys!.publicKey,

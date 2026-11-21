@@ -21,6 +21,8 @@ type SharedConfigurationBase = {
 	themes: ConfigTheme[];
 	defaultTheme: string;
 	fileUploadMaxFileSize?: number;
+	// GIF picker provider, null when GIFs are off
+	gifs?: "giphy" | "tenor" | null;
 	allowFileUploadBackendSelection?: boolean;
 	maskFileHost?: boolean;
 };

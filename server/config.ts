@@ -76,6 +76,9 @@ type Ldap = {
 	baseDN?: string;
 };
 
+export type {Gifs} from "../shared/types/gifs.js";
+import type {Gifs} from "../shared/types/gifs.js";
+
 export type Avatars = {
 	enable: boolean;
 	ratePerMinute: number;
@@ -133,6 +136,7 @@ export type ConfigType = {
 	webirc?: WebIRC;
 	trackers: Record<string, TrackerConfig | null> | null;
 	avatars: Avatars;
+	gifs: Gifs;
 	identd: Identd;
 	oidentd?: string;
 	ldap: Ldap;

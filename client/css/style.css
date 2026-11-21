@@ -3182,6 +3182,7 @@ part/quit messages where we don't load previews (adds a blank line otherwise) */
 }
 
 #form #upload,
+#form #emoji,
 #form #submit {
 	color: #607992;
 	font-size: 14px;
@@ -3193,6 +3194,123 @@ part/quit messages where we don't load previews (adds a blank line otherwise) */
 #form #upload[disabled],
 #form #submit[disabled] {
 	opacity: 0.5;
+}
+
+/* Emoji picker: a button in the message box, the picker opens above it */
+#form .emoji-picker-wrap {
+	display: flex;
+}
+
+#form #emoji::before {
+	content: "\f118"; /* https://fontawesome.com/icons/face-smile?style=solid */
+	font: normal normal 900 14px/1 "Font Awesome 7 Pro";
+}
+
+#form #emoji:hover,
+#form #emoji[aria-expanded="true"] {
+	color: var(--body-color);
+}
+
+.emoji-picker {
+	position: absolute;
+	right: 0;
+	bottom: calc(100% + 8px);
+	z-index: 20;
+	display: flex;
+	flex-direction: column;
+	width: min(400px, calc(100vw - 20px));
+	height: 420px;
+	border-radius: 8px;
+	background: var(--window-bg-color);
+	color: var(--body-color);
+	box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
+	overflow: hidden;
+}
+
+.emoji-picker .emoji-picker-search {
+	flex: none;
+	width: auto;
+	margin: 10px;
+}
+
+.emoji-picker-tabs {
+	display: flex;
+	flex: none;
+	gap: 2px;
+	padding: 0 10px 6px;
+	border-bottom: 1px solid rgb(0 0 0 / 10%);
+}
+
+.emoji-picker-tab {
+	flex: 1;
+	padding: 4px 0;
+	border-radius: 4px;
+	font-size: 18px;
+	line-height: 1;
+	filter: grayscale(1);
+	opacity: 0.7;
+}
+
+.emoji-picker-tab:hover {
+	filter: none;
+	opacity: 1;
+}
+
+.emoji-picker-grid {
+	position: relative;
+	flex: 1;
+	overflow-y: auto;
+	padding: 0 10px 10px;
+	scrollbar-width: thin;
+}
+
+.emoji-picker-group {
+	position: sticky;
+	top: 0;
+	padding: 8px 0 4px;
+	background: var(--window-bg-color);
+	color: var(--body-color-muted);
+	font-size: 12px;
+	font-weight: bold;
+	text-transform: uppercase;
+}
+
+.emoji-picker-items {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+}
+
+.emoji-picker-item {
+	height: 40px;
+	border-radius: 4px;
+	font-size: 26px;
+	line-height: 40px;
+}
+
+.emoji-picker-item:hover {
+	background: rgb(0 0 0 / 8%);
+}
+
+.emoji-picker-empty {
+	padding: 20px 0;
+	color: var(--body-color-muted);
+	text-align: center;
+}
+
+.emoji-picker-footer {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	height: 44px;
+	padding: 0 12px;
+	border-top: 1px solid rgb(0 0 0 / 10%);
+	color: var(--body-color-muted);
+	font-size: 14px;
+}
+
+.emoji-picker-preview {
+	font-size: 26px;
 }
 
 #mentions-popup-container,

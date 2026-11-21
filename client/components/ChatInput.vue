@@ -38,6 +38,7 @@
 				:disabled="!store.state.isConnected"
 			/>
 		</span>
+		<EmojiPicker @pick="insertText" />
 		<span
 			id="submit-tooltip"
 			class="tooltipped tooltipped-w tooltipped-no-touch"
@@ -65,6 +66,7 @@ import {watch, defineComponent, nextTick, onMounted, PropType, ref, onUnmounted}
 import type {ClientNetwork, ClientChan} from "../js/types";
 import {useStore} from "../js/store";
 import {ChanType} from "../../shared/types/chan";
+import EmojiPicker from "./EmojiPicker.vue";
 
 const formattingHotkeys = {
 	"mod+k": "\x03",
@@ -94,6 +96,7 @@ const bracketWraps = {
 
 export default defineComponent({
 	name: "ChatInput",
+	components: {EmojiPicker},
 	props: {
 		network: {type: Object as PropType<ClientNetwork>, required: true},
 		channel: {type: Object as PropType<ClientChan>, required: true},
@@ -130,6 +133,25 @@ export default defineComponent({
 			props.channel.pendingMessage = (e.target as HTMLInputElement).value;
 			props.channel.inputHistoryPosition = 0;
 			setInputSize();
+		};
+
+		// Puts text (e.g. an emoji from the picker) at the cursor, replacing any selection
+		const insertText = (text: string) => {
+			const el = input.value;
+			const value = props.channel.pendingMessage || "";
+			const start = el ? el.selectionStart : value.length;
+			const end = el ? el.selectionEnd : value.length;
+
+			props.channel.pendingMessage = value.slice(0, start) + text + value.slice(end);
+			props.channel.inputHistoryPosition = 0;
+			setInputSize();
+
+			void nextTick(() => {
+				if (el) {
+					el.focus();
+					el.selectionStart = el.selectionEnd = start + text.length;
+				}
+			});
 		};
 
 		const getInputPlaceholder = (channel: ClientChan) => {
@@ -402,6 +424,7 @@ export default defineComponent({
 			getInputPlaceholder,
 			onSubmit,
 			setPendingMessage,
+			insertText,
 		};
 	},
 });

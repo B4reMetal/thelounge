@@ -16,6 +16,14 @@
 		</button>
 		<div class="home-dms" role="region" aria-label="Direct messages of all networks">
 			<div class="home-dms-header">Direct Messages</div>
+			<!-- Hidden unless a theme shows it -->
+			<button
+				type="button"
+				class="quick-switcher-open"
+				@click="store.commit('quickSwitcherOpen', true)"
+			>
+				Find or start a conversation
+			</button>
 			<input
 				v-if="rows.length > 5"
 				v-model="filterText"
@@ -49,7 +57,8 @@
 </template>
 
 <style>
-.home {
+.home,
+.quick-switcher-open {
 	display: none;
 }
 </style>

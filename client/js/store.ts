@@ -60,6 +60,7 @@ export type State = {
 	sidebarOpen: boolean;
 	// Themes with a "home" (all networks' direct messages) show it instead of a network
 	homeOpen: boolean;
+	quickSwitcherOpen: boolean;
 	sidebarDragging: boolean;
 	userlistOpen: boolean;
 	versionData:
@@ -104,6 +105,7 @@ const state = (): State => ({
 	sessions: [],
 	sidebarOpen: false,
 	homeOpen: false,
+	quickSwitcherOpen: false,
 	sidebarDragging: false,
 	userlistOpen: storage.get("thelounge.state.userlist") !== "false",
 	versionData: null,
@@ -227,6 +229,7 @@ type Mutations = {
 	sessions(state: State, payload: State["sessions"]): void;
 	sidebarOpen(state: State, payload: State["sidebarOpen"]): void;
 	homeOpen(state: State, payload: State["homeOpen"]): void;
+	quickSwitcherOpen(state: State, payload: State["quickSwitcherOpen"]): void;
 	sidebarDragging(state: State, payload: State["sidebarDragging"]): void;
 	toggleSidebar(state: State): void;
 	toggleUserlist(state: State): void;
@@ -299,6 +302,9 @@ const mutations: Mutations = {
 	},
 	homeOpen(state, payload) {
 		state.homeOpen = payload;
+	},
+	quickSwitcherOpen(state, payload) {
+		state.quickSwitcherOpen = payload;
 	},
 	sidebarDragging(state, payload) {
 		state.sidebarDragging = payload;

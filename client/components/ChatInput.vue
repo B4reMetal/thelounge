@@ -67,6 +67,7 @@ import type {ClientNetwork, ClientChan} from "../js/types";
 import {useStore} from "../js/store";
 import {ChanType} from "../../shared/types/chan";
 import ExpressionPicker from "./ExpressionPicker.vue";
+import {quickSwitcherShown} from "../js/helpers/quickSwitcher";
 
 const formattingHotkeys = {
 	"mod+k": "\x03",
@@ -312,6 +313,12 @@ export default defineComponent({
 			}
 
 			inputTrap.bind(enabledHotkeys, function (e, key) {
+				// Themes with the quick switcher use Ctrl+K for it, like Discord
+				if (key === "mod+k" && quickSwitcherShown()) {
+					store.commit("quickSwitcherOpen", true);
+					return false;
+				}
+
 				const modifier = formattingHotkeys[key];
 
 				if (!e.target) {

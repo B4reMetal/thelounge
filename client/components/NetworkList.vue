@@ -147,10 +147,33 @@
 				</div>
 			</template>
 		</Draggable>
+		<!-- Hidden unless a theme shows them: add a network, browse channels -->
+		<div v-if="!searchText" class="rail-actions">
+			<router-link v-slot:default="{navigate}" to="/connect" custom>
+				<button
+					type="button"
+					class="rail-action rail-add-network"
+					aria-label="Add a network"
+					title="Add a network"
+					@click="navigate"
+				/>
+			</router-link>
+			<button
+				type="button"
+				class="rail-action rail-browse"
+				aria-label="Browse channels"
+				title="Browse channels"
+				@click="browseChannels"
+			/>
+		</div>
 	</div>
 </template>
 
 <style>
+.rail-actions {
+	display: none;
+}
+
 .jump-to-input {
 	margin: 8px;
 	position: relative;
@@ -231,6 +254,7 @@ import eventbus from "../js/eventbus";
 import {ClientChan, NetChan, type SortableEvent} from "../js/types";
 import {useStore} from "../js/store";
 import {switchToChannel} from "../js/router";
+import {ChanType, SpecialChanType} from "../../shared/types/chan";
 import Sortable from "sortablejs";
 
 export default defineComponent({
@@ -442,6 +466,44 @@ export default defineComponent({
 			}
 		};
 
+		// Runs /list on the current network and opens the channel browser
+		const browseChannels = () => {
+			const network =
+				store.state.activeChannel?.network ||
+				store.state.lastActiveChannel?.network ||
+				store.state.networks[0];
+
+			if (!network) {
+				return;
+			}
+
+			const findList = () =>
+				network.channels.find(
+					(c) => c.type === ChanType.SPECIAL && c.special === SpecialChanType.CHANNELLIST
+				);
+
+			socket.emit("input", {target: network.channels[0].id, text: "/list"});
+
+			const existing = findList();
+
+			if (existing) {
+				switchToChannel(existing);
+				return;
+			}
+
+			// The list window is created when the server starts answering
+			const stop = store.watch(
+				() => findList(),
+				(list) => {
+					if (list) {
+						stop();
+						switchToChannel(list);
+					}
+				}
+			);
+			setTimeout(stop, 10000);
+		};
+
 		const toggleSearch = (event: Mousetrap.ExtendedKeyboardEvent) => {
 			if (isIgnoredKeybind(event)) {
 				return true;
@@ -557,6 +619,7 @@ export default defineComponent({
 		});
 
 		return {
+			browseChannels,
 			store,
 			networklist,
 			searchInput,

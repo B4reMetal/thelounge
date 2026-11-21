@@ -1,7 +1,12 @@
+import type {ThemeOptions} from "../themeOptions";
+
 export type ConfigTheme = {
 	displayName: string;
 	name: string;
 	themeColor: string | null;
+	options?: ThemeOptions;
+	author?: string;
+	repositoryUrl?: string;
 };
 type SharedConfigurationBase = {
 	public: boolean;

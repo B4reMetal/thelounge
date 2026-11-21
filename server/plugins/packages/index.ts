@@ -57,6 +57,9 @@ export type PackageInfo = {
 	version: string;
 	type?: string;
 	files?: string[];
+	author?: unknown;
+	repository?: unknown;
+	homepage?: unknown;
 	// Legacy support
 	name?: string;
 	// Theme-specific fields (present when type === "theme")
@@ -228,6 +231,7 @@ async function loadPackage(packageName: string) {
 	}
 
 	const version = packageInfo.version;
+	const {author, repository, homepage} = packageInfo;
 	packageInfo = {
 		...packageInfo.thelounge,
 		packageName: packageName,
@@ -238,10 +242,12 @@ async function loadPackage(packageName: string) {
 
 	if (packageInfo.type === "theme") {
 		// PackageInfo includes theme-specific fields when type === "theme"
-		themes.addTheme(
-			packageName,
-			packageInfo as PackageInfo & {type: "theme"; themeColor: string; css: string}
-		);
+		themes.addTheme(packageName, {
+			...(packageInfo as PackageInfo & {type: "theme"; themeColor: string; css: string}),
+			author,
+			repository,
+			homepage,
+		});
 
 		if (packageInfo.files) {
 			packageInfo.files.forEach((file) => addFile(packageName, file));

@@ -251,6 +251,7 @@
 					{{ theme.displayName }}
 				</option>
 			</select>
+			<ThemeOptions />
 		</div>
 
 		<div>
@@ -278,9 +279,11 @@ textarea#user-specified-css-input {
 <script lang="ts">
 import {defineComponent} from "vue";
 import {useStore} from "../../js/store";
+import ThemeOptions from "./ThemeOptions.vue";
 
 export default defineComponent({
 	name: "AppearanceSettings",
+	components: {ThemeOptions},
 	setup() {
 		const store = useStore();
 

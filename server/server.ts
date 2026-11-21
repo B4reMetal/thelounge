@@ -41,6 +41,7 @@ import {
 	LockedConfigNetDefaults,
 } from "../shared/types/config.js";
 import {userTrackerLimits, userTrackersSetting} from "../shared/trackers.js";
+import {sanitizeThemeOptionsSetting} from "../shared/themeOptions.js";
 
 type ServerOptions = {
 	dev: boolean;
@@ -953,6 +954,20 @@ function initializeClient(
 					newSetting.value.length > userTrackerLimits.storedLength)
 			) {
 				return;
+			}
+
+			// Theme options are checked against the installed themes' declared options
+			if (newSetting.name === "themeOptions") {
+				const clean = sanitizeThemeOptionsSetting(newSetting.value, (name) => {
+					const theme = themes.getByName(name);
+					return theme ? theme.options || {} : undefined;
+				});
+
+				if (clean === null) {
+					return;
+				}
+
+				newSetting.value = clean;
 			}
 
 			// We do not need to do write operations and emit events if nothing changed.

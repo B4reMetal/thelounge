@@ -2,8 +2,10 @@ import fs from "fs";
 import path from "path";
 import _ from "lodash";
 
+import log from "../../log.js";
 import Config from "../../config.js";
 import Utils from "../../command-line/utils.js";
+import {parseThemeOptions, ThemeOptions} from "../../../shared/themeOptions.js";
 
 type Module = {
 	type?: string;
@@ -14,6 +16,12 @@ type ThemeModule = Module & {
 	type: "theme";
 	themeColor: string;
 	css: string;
+	files?: string[];
+	options?: unknown;
+	// From package.json itself, not its "thelounge" field
+	author?: unknown;
+	repository?: unknown;
+	homepage?: unknown;
 };
 
 export type ThemeForClient = {
@@ -21,6 +29,9 @@ export type ThemeForClient = {
 	filename?: string;
 	name: string;
 	themeColor: string | null;
+	options?: ThemeOptions;
+	author?: string;
+	repositoryUrl?: string;
 };
 
 const themes = new Map<string, ThemeForClient>();
@@ -53,7 +64,16 @@ function getAll() {
 	const filteredThemes: ThemeForClient[] = [];
 
 	for (const theme of themes.values()) {
-		filteredThemes.push(_.pick(theme, ["displayName", "name", "themeColor"]));
+		filteredThemes.push(
+			_.pick(theme, [
+				"displayName",
+				"name",
+				"themeColor",
+				"options",
+				"author",
+				"repositoryUrl",
+			])
+		);
 	}
 
 	return _.sortBy(filteredThemes, "displayName");
@@ -82,10 +102,91 @@ function makePackageThemeObject(
 
 	const themeColor = /^#[0-9A-F]{6}$/i.test(module.themeColor) ? module.themeColor : null;
 	const modulePath = Config.getPackageModulePath(moduleName);
-	return {
+	const theme: ThemeForClient = {
 		displayName: module.name || moduleName,
 		filename: path.join(modulePath, module.css),
 		name: encodeURIComponent(moduleName),
 		themeColor: themeColor,
 	};
+
+	const {options, errors} = parseThemeOptions(module.options, module.files || []);
+
+	for (const error of errors) {
+		log.warn(`Theme ${moduleName}: ${error}`);
+	}
+
+	if (Object.keys(options).length > 0) {
+		theme.options = options;
+	}
+
+	const author = authorName(module.author);
+	const repositoryUrl = sourceUrl(module.repository) || sourceUrl(module.homepage);
+
+	if (author) {
+		theme.author = author;
+	}
+
+	if (repositoryUrl) {
+		theme.repositoryUrl = repositoryUrl;
+	}
+
+	return theme;
+}
+
+// A package.json field that is either a string or an object with `key`
+const stringOr = (value: unknown, key: string): unknown =>
+	typeof value === "string"
+		? value
+		: value && typeof value === "object"
+			? (value as Record<string, unknown>)[key]
+			: undefined;
+
+/** package.json "author": "Name <email> (url)" or {name}. Never the email. */
+export function authorName(author: unknown): string | undefined {
+	const raw = stringOr(author, "name");
+
+	if (typeof raw !== "string") {
+		return undefined;
+	}
+
+	const name = raw.replace(/<[^>]*>|\([^)]*\)/g, "").trim();
+	return name && name.length <= 80 ? name : undefined;
+}
+
+/**
+ * package.json "repository" (string, {url}, "github:owner/repo" or
+ * "owner/repo") or "homepage", as an https URL to show, or undefined.
+ */
+export function sourceUrl(repository: unknown): string | undefined {
+	const picked = stringOr(repository, "url");
+
+	if (typeof picked !== "string" || picked.length > 300) {
+		return undefined;
+	}
+
+	let raw = picked.trim();
+	const shorthand = /^(?:(github|gitlab|bitbucket):)?([\w.-]+)\/([\w.-]+)$/.exec(raw);
+
+	if (shorthand) {
+		const host = {github: "github.com", gitlab: "gitlab.com", bitbucket: "bitbucket.org"}[
+			shorthand[1] || "github"
+		];
+		return `https://${host}/${shorthand[2]}/${shorthand[3].replace(/\.git$/, "")}`;
+	}
+
+	raw = raw.replace(/^git\+/, "").replace(/^git:\/\//, "https://");
+
+	try {
+		const url = new URL(raw);
+
+		if (url.protocol !== "https:" || url.username || url.password) {
+			return undefined;
+		}
+
+		url.pathname = url.pathname.replace(/\.git$/, "");
+		url.hash = "";
+		return url.href;
+	} catch {
+		return undefined;
+	}
 }

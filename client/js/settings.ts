@@ -1,5 +1,6 @@
 import socket from "./socket";
 import type {TypedStore} from "./store";
+import {applyThemeOptions} from "./themeOptions";
 
 const defaultSettingConfig = {
 	apply() {},
@@ -101,10 +102,12 @@ const defaultConfig = {
 			}
 
 			if (hrefAttr.value === themeUrl) {
+				applyThemeOptions(store);
 				return;
 			}
 
 			hrefAttr.value = themeUrl;
+			applyThemeOptions(store);
 
 			if (!store.state.serverConfiguration) {
 				return;
@@ -124,6 +127,13 @@ const defaultConfig = {
 				const themeColor = newTheme.themeColor || metaSelector.content;
 				metaSelector.content = themeColor;
 			}
+		},
+	},
+	// Options of each theme, as JSON (see shared/themeOptions.ts)
+	themeOptions: {
+		default: "",
+		apply(store: TypedStore) {
+			applyThemeOptions(store);
 		},
 	},
 	media: {

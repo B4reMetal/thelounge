@@ -47,6 +47,7 @@ function render() {
 		// networks, and those networks' private-message rows in the sidebar
 		const views = new Map<string, string[]>();
 		const sidebars = new Map<string, string[]>();
+		const netUuids = new Map<string, string[]>(); // [data-network="…"] per tracker
 
 		for (const network of store.state.networks) {
 			for (const tracker of network.trackers || []) {
@@ -57,6 +58,10 @@ function render() {
 				views.set(tracker.id, [
 					...(views.get(tracker.id) || []),
 					...network.channels.map((c) => `#chan-${c.id}`),
+				]);
+				netUuids.set(tracker.id, [
+					...(netUuids.get(tracker.id) || []),
+					`[data-network="${cssString(network.uuid)}"]`,
 				]);
 				sidebars.set(tracker.id, [
 					...(sidebars.get(tracker.id) || []),
@@ -86,6 +91,7 @@ function render() {
 			const selectors = [
 				...(ids.length ? [`:is(${ids.join(",")}) .user[data-name="${nick}" i]`] : []),
 				`:is(${nets.join(",")}) .channel-list-item[data-type="query"][data-name="${nick}" i]`,
+				`.footer-identity:is(${netUuids.get(tracker)!.join(",")})[data-name="${nick}" i]`,
 			];
 			css += `${selectors.join(",")}{--tl-avatar:url("${cssString(absolute)}");--tl-initials:""}\n`;
 		}
@@ -113,7 +119,7 @@ function scanNames() {
 	let added = false;
 
 	for (const el of document.querySelectorAll<HTMLElement>(
-		'.user[data-name], .channel-list-item[data-type="query"][data-name]'
+		'.user[data-name], .channel-list-item[data-type="query"][data-name], .footer-identity[data-name]'
 	)) {
 		const name = el.dataset.name;
 
@@ -131,7 +137,7 @@ function scanNames() {
 
 	for (const name of knownNames) {
 		const n = cssString(name);
-		css += `.user[data-name="${n}" i],.channel-list-item[data-type="query"][data-name="${n}" i]{--tl-initials:"${cssString(initialsFor(name))}"}\n`;
+		css += `.user[data-name="${n}" i],.channel-list-item[data-type="query"][data-name="${n}" i],.footer-identity[data-name="${n}" i]{--tl-initials:"${cssString(initialsFor(name))}"}\n`;
 	}
 
 	initialsStyle.textContent = css;

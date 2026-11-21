@@ -250,10 +250,9 @@ const mutations: Mutations = {
 		if (netChan) {
 			state.lastActiveChannel = netChan;
 
-			// Opening a channel or a network leaves the home; a direct message stays in it
-			if (netChan.channel.type !== ChanType.QUERY) {
-				state.homeOpen = false;
-			}
+			// A direct message is shown in the home (however it was opened), anything
+			// else in its network
+			state.homeOpen = netChan.channel.type === ChanType.QUERY;
 		}
 	},
 	currentUserVisibleError(state, error) {

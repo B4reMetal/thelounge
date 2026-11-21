@@ -78,9 +78,20 @@ export default defineComponent({
 				.flatMap((network) =>
 					network.channels
 						.filter((channel) => channel.type === ChanType.QUERY)
-						.map((channel) => ({network, channel, time: lastTime(channel)}))
+						.map((channel) => ({
+							network,
+							channel,
+							// The open conversation stays on top until it has messages
+							time:
+								lastTime(channel) ||
+								(channel === store.state.activeChannel?.channel ? Infinity : 0),
+						}))
 				)
-				.sort((a, b) => b.time - a.time || a.channel.name.localeCompare(b.channel.name))
+				.sort(
+					(a, b) =>
+						(b.time === a.time ? 0 : b.time > a.time ? 1 : -1) ||
+						a.channel.name.localeCompare(b.channel.name)
+				)
 		);
 
 		const shown = computed(() => {

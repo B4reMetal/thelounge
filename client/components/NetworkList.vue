@@ -101,6 +101,25 @@
 							network.isJoinChannelShown = !network.isJoinChannelShown
 						"
 					/>
+					<!-- Hidden unless a theme shows them: this network's server messages
+					     (its lobby) and its channel browser -->
+					<button
+						type="button"
+						class="network-lobby-open"
+						:class="{
+							active: store.state.activeChannel?.channel === network.channels[0],
+						}"
+						:aria-label="`Server messages of ${network.name}`"
+						:title="`Server messages of ${network.name}`"
+						@click="switchToChannel(network.channels[0])"
+					/>
+					<button
+						type="button"
+						class="network-browse"
+						:aria-label="`Browse channels on ${network.name}`"
+						:title="`Browse channels on ${network.name}`"
+						@click="browseChannels(network)"
+					/>
 					<JoinChannel
 						v-if="network.isJoinChannelShown"
 						:network="network"
@@ -158,19 +177,23 @@
 					@click="navigate"
 				/>
 			</router-link>
-			<button
-				type="button"
-				class="rail-action rail-browse"
-				aria-label="Browse channels"
-				title="Browse channels"
-				@click="browseChannels"
-			/>
+			<router-link v-slot:default="{navigate}" to="/discover" custom>
+				<button
+					type="button"
+					class="rail-action rail-browse"
+					aria-label="Discover channels on all networks"
+					title="Discover channels"
+					@click="navigate"
+				/>
+			</router-link>
 		</div>
 	</div>
 </template>
 
 <style>
-.rail-actions {
+.rail-actions,
+.network-browse,
+.network-lobby-open {
 	display: none;
 }
 
@@ -251,7 +274,7 @@ import collapseNetworkHelper from "../js/helpers/collapseNetwork";
 import isIgnoredKeybind from "../js/helpers/isIgnoredKeybind";
 import distance from "../js/helpers/distance";
 import eventbus from "../js/eventbus";
-import {ClientChan, NetChan, type SortableEvent} from "../js/types";
+import {ClientChan, ClientNetwork, NetChan, type SortableEvent} from "../js/types";
 import {useStore} from "../js/store";
 import {switchToChannel} from "../js/router";
 import {ChanType, SpecialChanType} from "../../shared/types/chan";
@@ -467,16 +490,7 @@ export default defineComponent({
 		};
 
 		// Runs /list on the current network and opens the channel browser
-		const browseChannels = () => {
-			const network =
-				store.state.activeChannel?.network ||
-				store.state.lastActiveChannel?.network ||
-				store.state.networks[0];
-
-			if (!network) {
-				return;
-			}
-
+		const browseChannels = (network: ClientNetwork) => {
 			const findList = () =>
 				network.channels.find(
 					(c) => c.type === ChanType.SPECIAL && c.special === SpecialChanType.CHANNELLIST
@@ -620,6 +634,7 @@ export default defineComponent({
 
 		return {
 			browseChannels,
+			switchToChannel,
 			store,
 			networklist,
 			searchInput,

@@ -3,7 +3,7 @@ import {store} from "../store";
 import {switchToChannel} from "../router";
 import {ClientChan} from "../types";
 import {toClientChan} from "../chan";
-import {takeQuietJoin} from "../quietJoins";
+import {isQuiet} from "../quietJoins";
 
 socket.on("join", function (data) {
 	const network = store.getters.findNetwork(data.network);
@@ -21,7 +21,7 @@ socket.on("join", function (data) {
 	}
 
 	// Joined from the channel browser: stay there
-	if (takeQuietJoin(data.network, data.chan.name)) {
+	if (isQuiet(data.network, data.chan.name)) {
 		return;
 	}
 

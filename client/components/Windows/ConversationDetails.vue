@@ -16,6 +16,23 @@
 						aria-label="Back to the conversation"
 						@click="back"
 					/>
+					<span class="details-header-space" />
+					<button
+						type="button"
+						class="details-action details-search"
+						aria-label="Search this conversation"
+						title="Search"
+						@click="searchHere"
+					/>
+					<button
+						type="button"
+						class="details-action details-mute"
+						:class="{muted: channel.muted}"
+						:aria-pressed="channel.muted ? 'true' : 'false'"
+						:aria-label="channel.muted ? 'Unmute' : 'Mute'"
+						:title="channel.muted ? 'Unmute' : 'Mute'"
+						@click="toggleMute"
+					/>
 				</div>
 				<div class="details-scroll">
 					<ProfileCard
@@ -26,11 +43,16 @@
 						class="details-profile"
 					/>
 					<div v-else class="details-channel">
-						<div class="details-channel-name">{{ channel.name }}</div>
-						<div class="details-channel-sub">
-							{{ channel.users.length }}
-							{{ channel.users.length === 1 ? "member" : "members" }} ·
-							{{ network.name }}
+						<div class="details-channel-head">
+							<span class="details-channel-icon" aria-hidden="true">#</span>
+							<span class="details-channel-names">
+								<span class="details-channel-name">{{
+									channel.name.replace(/^#/, "")
+								}}</span>
+								<span class="details-channel-sub"
+									>Channel on {{ network.name }}</span
+								>
+							</span>
 						</div>
 						<p v-if="channel.topic" class="details-channel-topic">
 							<ParsedMessage :network="network" :text="channel.topic" />
@@ -51,23 +73,36 @@
 						</button>
 					</nav>
 
-					<!-- Members -->
+					<!-- Members, grouped by rank like Discord's roles -->
 					<div v-if="tab === 'members'" class="details-members">
-						<div class="details-group">Members — {{ members.length }}</div>
-						<div class="details-card">
-							<div v-for="m in members" :key="m.nick" class="details-member">
-								<span
-									class="user details-member-avatar"
-									:class="colorOf(m.nick)"
-									:data-name="m.nick"
-									aria-hidden="true"
-								/>
-								<Username :user="m" :channel="channel" :network="network" />
-								<span v-if="m.mode" class="details-member-mode">{{
-									modeLabel(m.mode)
-								}}</span>
+						<template v-for="group in memberGroups" :key="group.label">
+							<div class="details-group">
+								{{ group.label }} — {{ group.users.length }}
 							</div>
-						</div>
+							<div class="details-card">
+								<div
+									v-for="m in group.users"
+									:key="m.nick"
+									class="details-member"
+									:class="{away: !!m.away}"
+								>
+									<span
+										class="user details-member-avatar"
+										:class="colorOf(m.nick)"
+										:data-name="m.nick"
+										aria-hidden="true"
+									/>
+									<span class="details-member-names">
+										<Username :user="m" :channel="channel" :network="network">{{
+											m.nick
+										}}</Username>
+										<span v-if="m.away" class="details-member-status">{{
+											m.away
+										}}</span>
+									</span>
+								</div>
+							</div>
+						</template>
 					</div>
 
 					<!-- Media -->
@@ -196,20 +231,40 @@ export default defineComponent({
 		const minItems = 30;
 		const maxAutoPages = 10;
 
-		const members = computed(() => {
+		const rankLabels: Record<string, string> = {
+			"~": "Owners",
+			"&": "Admins",
+			"@": "Operators",
+			"%": "Half-operators",
+			"+": "Voiced",
+		};
+
+		const memberGroups = computed(() => {
 			if (!channel.value || !network.value) {
 				return [];
 			}
 
 			if (isQuery.value) {
-				return [{nick: network.value.nick}, {nick: channel.value.name}];
+				return [
+					{
+						label: "Members",
+						users: [{nick: network.value.nick}, {nick: channel.value.name}],
+					},
+				];
 			}
 
-			return [...channel.value.users].sort(
-				(a, b) =>
-					Number(!a.mode) - Number(!b.mode) ||
-					a.nick.localeCompare(b.nick, undefined, {sensitivity: "base"})
-			);
+			const byName = (a: {nick: string}, b: {nick: string}) =>
+				a.nick.localeCompare(b.nick, undefined, {sensitivity: "base"});
+			const groups = new Map<string, typeof channel.value.users>();
+
+			for (const user of channel.value.users) {
+				const label = rankLabels[user.modes[0] || ""] || "Members";
+				groups.set(label, [...(groups.get(label) || []), user]);
+			}
+
+			return [...Object.values(rankLabels), "Members"]
+				.filter((label) => groups.has(label))
+				.map((label) => ({label, users: groups.get(label)!.sort(byName)}));
 		});
 
 		const previewOf = (item: ConversationLink) =>
@@ -275,9 +330,38 @@ export default defineComponent({
 		};
 
 		const colorOf = (nick: string) => colorClass(nick || "");
-		const modeLabel = (mode: string) =>
-			({"~": "Owner", "&": "Admin", "@": "Operator", "%": "Half-op", "+": "Voiced"})[mode] ||
-			mode;
+
+		const toggleMute = () => {
+			if (channel.value) {
+				socket.emit("mute:change", {
+					target: channel.value.id,
+					setMutedTo: !channel.value.muted,
+				});
+			}
+		};
+
+		// Back to the conversation with its search box open
+		const searchHere = () => {
+			if (!channel.value) {
+				return;
+			}
+
+			switchToChannel(channel.value);
+			setTimeout(() => {
+				const input = document.querySelector<HTMLInputElement>(
+					"#chat .header form.message-search input"
+				);
+				const toggle = document.querySelector<HTMLButtonElement>(
+					"#chat .header form.message-search button.search"
+				);
+
+				if (toggle && toggle.offsetParent) {
+					toggle.dispatchEvent(new MouseEvent("mousedown", {bubbles: true}));
+				}
+
+				input?.focus();
+			}, 300);
+		};
 
 		const emptyText = computed(
 			() =>
@@ -399,7 +483,9 @@ export default defineComponent({
 			isQuery,
 			tab,
 			tabs,
-			members,
+			memberGroups,
+			toggleMute,
+			searchHere,
 			media,
 			files,
 			links,
@@ -411,7 +497,6 @@ export default defineComponent({
 			titleOf,
 			sizeOf,
 			colorOf,
-			modeLabel,
 			emptyText,
 			back,
 		};

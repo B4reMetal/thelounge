@@ -9,6 +9,7 @@ import type {InjectionKey} from "vue";
 import {SettingsState} from "./settings";
 import {SearchQuery} from "../../shared/types/storage";
 import {SharedConfiguration, LockedSharedConfiguration} from "../../shared/types/config";
+import {ChanType} from "../../shared/types/chan";
 
 const appName = document.title;
 
@@ -57,6 +58,8 @@ export type State = {
 	serverConfiguration: SharedConfiguration | LockedSharedConfiguration | null;
 	sessions: ClientSession[];
 	sidebarOpen: boolean;
+	// Themes with a "home" (all networks' direct messages) show it instead of a network
+	homeOpen: boolean;
 	sidebarDragging: boolean;
 	userlistOpen: boolean;
 	versionData:
@@ -100,6 +103,7 @@ const state = (): State => ({
 	serverConfiguration: null,
 	sessions: [],
 	sidebarOpen: false,
+	homeOpen: false,
 	sidebarDragging: false,
 	userlistOpen: storage.get("thelounge.state.userlist") !== "false",
 	versionData: null,
@@ -222,6 +226,7 @@ type Mutations = {
 	serverConfiguration(state: State, serverConfiguration: State["serverConfiguration"]): void;
 	sessions(state: State, payload: State["sessions"]): void;
 	sidebarOpen(state: State, payload: State["sidebarOpen"]): void;
+	homeOpen(state: State, payload: State["homeOpen"]): void;
 	sidebarDragging(state: State, payload: State["sidebarDragging"]): void;
 	toggleSidebar(state: State): void;
 	toggleUserlist(state: State): void;
@@ -244,6 +249,11 @@ const mutations: Mutations = {
 
 		if (netChan) {
 			state.lastActiveChannel = netChan;
+
+			// Opening a channel or a network leaves the home; a direct message stays in it
+			if (netChan.channel.type !== ChanType.QUERY) {
+				state.homeOpen = false;
+			}
 		}
 	},
 	currentUserVisibleError(state, error) {
@@ -287,6 +297,9 @@ const mutations: Mutations = {
 	},
 	sidebarOpen(state, payload) {
 		state.sidebarOpen = payload;
+	},
+	homeOpen(state, payload) {
+		state.homeOpen = payload;
 	},
 	sidebarDragging(state, payload) {
 		state.sidebarDragging = payload;

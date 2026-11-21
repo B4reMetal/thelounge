@@ -28,6 +28,7 @@
 				@focus="activateSearch"
 			/>
 		</div>
+		<HomeDirectMessages v-if="!searchText" />
 		<div v-if="searchText" class="jump-to-results">
 			<div v-if="results.length">
 				<div
@@ -220,6 +221,7 @@ import NetworkLobby from "./NetworkLobby.vue";
 import Channel from "./Channel.vue";
 import JoinChannel from "./JoinChannel.vue";
 import DirectMessageSection from "./DirectMessageSection.vue";
+import HomeDirectMessages from "./HomeDirectMessages.vue";
 
 import socket from "../js/socket";
 import collapseNetworkHelper from "../js/helpers/collapseNetwork";
@@ -235,6 +237,7 @@ export default defineComponent({
 	name: "NetworkList",
 	components: {
 		JoinChannel,
+		HomeDirectMessages,
 		NetworkLobby,
 		Channel,
 		Draggable,

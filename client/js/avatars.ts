@@ -61,6 +61,7 @@ function render() {
 				sidebars.set(tracker.id, [
 					...(sidebars.get(tracker.id) || []),
 					`#network-${CSS.escape(network.uuid)}`,
+					`.home-dm-row[data-network="${cssString(network.uuid)}"]`,
 				]);
 			}
 		}

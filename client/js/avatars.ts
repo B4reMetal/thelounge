@@ -89,7 +89,12 @@ function render() {
 			// that uses it (the theme's), not this page
 			const absolute = new URL(url, document.baseURI).href;
 			const selectors = [
-				...(ids.length ? [`:is(${ids.join(",")}) .user[data-name="${nick}" i]`] : []),
+				...(ids.length
+					? [
+							`:is(${ids.join(",")}) .user[data-name="${nick}" i]`,
+							`:is(${ids.join(",")}) .header[data-name="${nick}" i]`,
+						]
+					: []),
 				`:is(${nets.join(",")}) .channel-list-item[data-type="query"][data-name="${nick}" i]`,
 				`.footer-identity:is(${netUuids.get(tracker)!.join(",")})[data-name="${nick}" i]`,
 			];
@@ -119,7 +124,7 @@ function scanNames() {
 	let added = false;
 
 	for (const el of document.querySelectorAll<HTMLElement>(
-		'.user[data-name], .channel-list-item[data-type="query"][data-name], .footer-identity[data-name]'
+		'.user[data-name], .channel-list-item[data-type="query"][data-name], .footer-identity[data-name], .header[data-name]'
 	)) {
 		const name = el.dataset.name;
 
@@ -137,7 +142,7 @@ function scanNames() {
 
 	for (const name of knownNames) {
 		const n = cssString(name);
-		css += `.user[data-name="${n}" i],.channel-list-item[data-type="query"][data-name="${n}" i],.footer-identity[data-name="${n}" i]{--tl-initials:"${cssString(initialsFor(name))}"}\n`;
+		css += `.user[data-name="${n}" i],.channel-list-item[data-type="query"][data-name="${n}" i],.footer-identity[data-name="${n}" i],.header[data-name="${n}" i]{--tl-initials:"${cssString(initialsFor(name))}"}\n`;
 	}
 
 	initialsStyle.textContent = css;

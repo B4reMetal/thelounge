@@ -16,7 +16,10 @@
 				:aria-label="channel.name"
 				role="tabpanel"
 			>
-				<div class="header">
+				<div
+					class="header"
+					:data-name="channel.type === 'query' ? channel.name : undefined"
+				>
 					<SidebarToggle />
 					<span class="title" :aria-label="'Currently open ' + channel.type">{{
 						channel.name
@@ -31,6 +34,24 @@
 					>
 						{{ onlineCount }} online
 					</button>
+					<!-- Hidden unless a theme shows them: the details page, the DM profile panel -->
+					<button
+						v-if="channel.type === 'channel' || channel.type === 'query'"
+						type="button"
+						class="title-details"
+						aria-label="Details: members, media, links and files"
+						title="Details"
+						@click="openDetails"
+					/>
+					<button
+						v-if="channel.type === 'query'"
+						type="button"
+						class="profile-toggle"
+						:aria-pressed="profilePanel.open ? 'true' : 'false'"
+						:aria-label="profilePanel.open ? 'Hide profile' : 'Show profile'"
+						:title="profilePanel.open ? 'Hide profile' : 'Show profile'"
+						@click="toggleProfilePanel"
+					/>
 					<div v-if="channel.editTopic === true" class="topic-container">
 						<input
 							ref="topicInput"
@@ -110,6 +131,14 @@
 						<div class="scroll-down-arrow" />
 					</button>
 					<ChatUserList v-if="channel.type === 'channel'" :channel="channel" />
+					<!-- Hidden unless a theme shows it: the profile next to a DM -->
+					<aside
+						v-if="channel.type === 'query' && profilePanel.open"
+						class="profile-panel"
+						aria-label="Profile"
+					>
+						<ProfileCard :network="network" :channel="channel" :nick="channel.name" />
+					</aside>
 					<MessageList
 						ref="messageList"
 						:network="network"
@@ -144,6 +173,9 @@ import ListBans from "./Special/ListBans.vue";
 import ListInvites from "./Special/ListInvites.vue";
 import ListChannels from "./Special/ListChannels.vue";
 import ListIgnored from "./Special/ListIgnored.vue";
+import ProfileCard from "./ProfileCard.vue";
+import {profilePanel, toggleProfilePanel} from "../js/profiles";
+import {navigate} from "../js/router";
 import {defineComponent, PropType, ref, computed, watch, nextTick, onMounted, Component} from "vue";
 import type {ClientNetwork, ClientChan} from "../js/types";
 import {useStore} from "../js/store";
@@ -160,6 +192,7 @@ export default defineComponent({
 		ChatUserList,
 		SidebarToggle,
 		MessageSearchForm,
+		ProfileCard,
 	},
 	props: {
 		network: {type: Object as PropType<ClientNetwork>, required: true},
@@ -173,6 +206,8 @@ export default defineComponent({
 
 		const messageList = ref<InstanceType<typeof MessageList> | null>(null);
 		const topicInput = ref<HTMLInputElement | null>(null);
+
+		const openDetails = () => void navigate("ConversationDetails", {id: props.channel.id});
 
 		// Members not marked away
 		const onlineCount = computed(() => props.channel.users.filter((u) => !u.away).length);
@@ -289,6 +324,9 @@ export default defineComponent({
 
 		return {
 			onlineCount,
+			profilePanel,
+			toggleProfilePanel,
+			openDetails,
 			store,
 			messageList,
 			topicInput,

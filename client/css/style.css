@@ -1708,7 +1708,10 @@ textarea.input {
 	padding-left: 10px;
 }
 
-.header .title-online {
+.header .title-online,
+.header .title-details,
+.header .profile-toggle,
+#chat .profile-panel {
 	display: none;
 }
 

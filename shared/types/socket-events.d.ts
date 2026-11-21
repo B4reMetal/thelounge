@@ -80,6 +80,20 @@ interface ServerToClientEvents {
 	"avatars:update": EventHandler<{tracker: string; nick: string; url: string | null}[]>;
 	"avatars:fetch": EventHandler<{id: string; url: string; ifModifiedSince?: string}>;
 
+	// Profiles and conversation details
+	"profile:info": EventHandler<{
+		target: number;
+		nick: string;
+		profile: import("./profile").UserProfile | null;
+	}>;
+	"details:links": EventHandler<{
+		target: number;
+		offset: number;
+		items: import("./profile").ConversationLink[];
+		more: boolean;
+	}>;
+	"details:preview": EventHandler<{url: string; preview: import("./msg").LinkPreview | null}>;
+
 	// GIF picker results (see server/plugins/gifs.ts)
 	"gifs:results": EventHandler<{
 		id: string;
@@ -180,6 +194,9 @@ interface ClientToServerEvents {
 	"tracker:user": EventHandler<{target: number; nick: string}>;
 
 	"gifs:search": EventHandler<{id: string; q: string; pos?: string | null}>;
+	"profile:get": EventHandler<{target: number; nick: string}>;
+	"details:links": EventHandler<{target: number; offset: number}>;
+	"details:preview": EventHandler<{url: string}>;
 	"avatars:fetcher": EventHandler<{hosts: string[]}>;
 	"avatars:want": EventHandler<{network: string; nick: string; channel?: string}>;
 	"avatars:result": EventHandler<{

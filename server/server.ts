@@ -43,6 +43,11 @@ import {
 import {userTrackerLimits, userTrackersSetting} from "../shared/trackers.js";
 import {sanitizeThemeOptionsSetting} from "../shared/themeOptions.js";
 import {allowGifSearch, gifProvider, searchGifs, type Gif} from "./plugins/gifs.js";
+import {previewFor} from "./plugins/irc-events/link.js";
+import {findLinksWithSchema} from "../shared/linkify.js";
+import {cleanIrcMessage} from "../shared/irc.js";
+import type {ConversationLink, UserProfile} from "../shared/types/profile.js";
+import {MessageType, type LinkPreview} from "../shared/types/msg.js";
 
 type ServerOptions = {
 	dev: boolean;
@@ -559,6 +564,141 @@ function initializeClient(
 	socket.on("disconnect", function () {
 		avatars.unregisterFetcher(socket.id);
 		process.nextTick(() => client.clientDetach(socket.id));
+	});
+
+	// Profiles and conversation details (a DM's profile panel, the details page)
+	const detailRequests: number[] = [];
+
+	const allowDetailRequest = () => {
+		const now = Date.now();
+
+		while (detailRequests.length && now - detailRequests[0] > 60000) {
+			detailRequests.shift();
+		}
+
+		if (detailRequests.length >= 120) {
+			return false;
+		}
+
+		detailRequests.push(now);
+		return true;
+	};
+
+	socket.on("profile:get", (data) => {
+		if (!_.isPlainObject(data) || typeof data.nick !== "string") {
+			return;
+		}
+
+		const found = client.find(Number(data.target));
+		const reply = (profile: UserProfile | null) =>
+			socket.emit("profile:info", {target: data.target, nick: data.nick, profile});
+
+		if (!found || !allowDetailRequest()) {
+			return reply(null);
+		}
+
+		client.userIdentLookup
+			.profile(found.network, data.nick)
+			.then(reply)
+			.catch(() => reply(null));
+	});
+
+	// Every link posted in a conversation: loaded messages (with their
+	// previews) and, with message storage, older history
+	socket.on("details:links", (data) => {
+		if (!_.isPlainObject(data)) {
+			return;
+		}
+
+		const offset = Math.max(0, Number(data.offset) || 0);
+		const found = client.find(Number(data.target));
+		const reply = (items: ConversationLink[], more: boolean) =>
+			socket.emit("details:links", {target: data.target, offset, items, more});
+
+		if (!found || !allowDetailRequest()) {
+			return reply([], false);
+		}
+
+		const {network, chan} = found;
+		const seen = new Set<string>();
+		const items: ConversationLink[] = [];
+
+		const add = (
+			text: string,
+			msgId: number,
+			time: number,
+			from: string,
+			previews: LinkPreview[] = []
+		) => {
+			for (const {link} of findLinksWithSchema(text)) {
+				if (seen.has(link) || items.length >= 500) {
+					continue;
+				}
+
+				seen.add(link);
+				const preview = previews.find((p) => p.link === link && p.type !== "loading");
+				items.push({url: link, msgId, time, from, ...(preview ? {preview} : {})});
+			}
+		};
+
+		const loaded = async () => {
+			if (offset === 0) {
+				for (const msg of [...chan.messages].reverse()) {
+					if (msg.type === MessageType.MESSAGE || msg.type === MessageType.ACTION) {
+						add(
+							cleanIrcMessage(msg.text),
+							msg.id,
+							new Date(msg.time).getTime(),
+							msg.from?.nick || "",
+							msg.previews
+						);
+					}
+				}
+			}
+
+			if (!client.messageProvider) {
+				return false;
+			}
+
+			const res = await client.messageProvider.search({
+				searchTerm: "://",
+				networkUuid: network.uuid,
+				channelName: chan.name,
+				offset,
+			});
+
+			for (const msg of res.results) {
+				add(
+					cleanIrcMessage(msg.text || ""),
+					msg.id,
+					new Date(msg.time).getTime(),
+					msg.from?.nick || ""
+				);
+			}
+
+			return res.results.length >= 100;
+		};
+
+		loaded()
+			.then((more) => reply(items, more))
+			.catch(() => reply(items, false));
+	});
+
+	socket.on("details:preview", (data) => {
+		if (!_.isPlainObject(data) || typeof data.url !== "string" || data.url.length > 2048) {
+			return;
+		}
+
+		const reply = (preview: LinkPreview | null) =>
+			socket.emit("details:preview", {url: data.url, preview});
+
+		if (!allowDetailRequest()) {
+			return reply(null);
+		}
+
+		previewFor(client, data.url)
+			.then(reply)
+			.catch(() => reply(null));
 	});
 
 	// GIF picker: the server searches the provider, so browsers never talk to it

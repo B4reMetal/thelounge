@@ -43,6 +43,8 @@ export type ClientSession = {
 export type State = {
 	appLoaded: boolean;
 	activeChannel?: NetChan;
+	// The channel shown last, kept while on settings, help and other windows
+	lastActiveChannel?: NetChan;
 	currentUserVisibleError: string | null;
 	desktopNotificationState: DesktopNotificationState;
 	isAutoCompleting: boolean;
@@ -86,6 +88,7 @@ export type State = {
 const state = (): State => ({
 	appLoaded: false,
 	activeChannel: undefined,
+	lastActiveChannel: undefined,
 	currentUserVisibleError: null,
 	desktopNotificationState: detectDesktopNotificationState(),
 	isAutoCompleting: false,
@@ -238,6 +241,10 @@ const mutations: Mutations = {
 	},
 	activeChannel(state, netChan) {
 		state.activeChannel = netChan;
+
+		if (netChan) {
+			state.lastActiveChannel = netChan;
+		}
 	},
 	currentUserVisibleError(state, error) {
 		state.currentUserVisibleError = error;

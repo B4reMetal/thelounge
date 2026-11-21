@@ -77,6 +77,7 @@
 					:key="network.uuid"
 					:class="{
 						collapsed: network.isCollapsed,
+						'last-active': store.state.lastActiveChannel?.network.uuid === network.uuid,
 						'not-connected': !network.status.connected,
 						'not-secure': !network.status.secure,
 					}"

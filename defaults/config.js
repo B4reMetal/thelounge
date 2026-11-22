@@ -525,6 +525,7 @@ export default {
 			name: "MidnightScene",
 			network: "irc.midnightscene.cc",
 			profileUrl: "https://midnightscene.cc/users/{nick}",
+			avatarUrl: "https://midnightscene.cc/authenticated-images/user-avatars/{nick}",
 		},
 		"OE+": {
 			name: "OnlyEncodes+",
@@ -545,6 +546,7 @@ export default {
 			name: "Zenith",
 			network: "irc.znth.cx",
 			profileUrl: "https://znth.cx/users/{nick}",
+			avatarUrl: "https://znth.cx/authenticated-images/user-avatars/{nick}",
 		},
 		ANT: {
 			name: "Anthelion",

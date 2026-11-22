@@ -1332,7 +1332,18 @@ function getClientConfiguration(): SharedConfiguration | LockedSharedConfigurati
 		applicationServerKey: manager!.webPush.vapidKeys!.publicKey,
 		version: Helper.getVersionNumber(),
 		gitCommit: Helper.getGitCommit(),
-		themes: themes.getAll(),
+		// Whether each theme's recommended packages are installed here
+		themes: themes.getAll().map((theme) =>
+			theme.recommends
+				? {
+						...theme,
+						recommends: theme.recommends.map((r) => ({
+							...r,
+							installed: Boolean(packages.getPackage(r.name)),
+						})),
+					}
+				: theme
+		),
 		packageModules: packages.getClientModules(),
 		defaultTheme: Config.values.theme,
 		public: Config.values.public,

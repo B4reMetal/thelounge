@@ -21,11 +21,66 @@ type ThemeModule = Module & {
 	options?: unknown;
 	features?: unknown;
 	client?: unknown;
+	recommends?: unknown;
 	// From package.json itself, not its "thelounge" field
 	author?: unknown;
 	repository?: unknown;
 	homepage?: unknown;
 };
+
+export type ThemeRecommendation = {
+	name: string;
+	description?: string;
+	// How to install it, shown as given (default: `thelounge install <name>`)
+	install?: string;
+	installed?: boolean;
+};
+
+const packageNameRegex = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+
+/** A theme's "recommends": package names, or {name, description, install}. */
+export function parseRecommends(raw: unknown): ThemeRecommendation[] {
+	if (!Array.isArray(raw)) {
+		return [];
+	}
+
+	const result: ThemeRecommendation[] = [];
+
+	for (const entry of raw.slice(0, 5)) {
+		const item: Record<string, unknown> =
+			typeof entry === "string"
+				? {name: entry}
+				: entry && typeof entry === "object"
+					? entry
+					: {};
+
+		if (
+			typeof item.name !== "string" ||
+			item.name.length > 214 ||
+			!packageNameRegex.test(item.name)
+		) {
+			continue;
+		}
+
+		const rec: ThemeRecommendation = {name: item.name};
+
+		if (typeof item.description === "string" && item.description.length <= 200) {
+			rec.description = item.description;
+		}
+
+		if (
+			typeof item.install === "string" &&
+			item.install.length <= 200 &&
+			/^thelounge install \S+$/.test(item.install)
+		) {
+			rec.install = item.install;
+		}
+
+		result.push(rec);
+	}
+
+	return result;
+}
 
 export type ThemeForClient = {
 	displayName: string;
@@ -37,6 +92,8 @@ export type ThemeForClient = {
 	features?: FeatureValues;
 	// The theme's client module, a file among its public files
 	client?: string;
+	// Packages that go well with the theme; `installed` is filled in per request
+	recommends?: ThemeRecommendation[];
 	author?: string;
 	repositoryUrl?: string;
 };
@@ -79,6 +136,7 @@ function getAll() {
 				"options",
 				"features",
 				"client",
+				"recommends",
 				"author",
 				"repositoryUrl",
 			])
@@ -126,6 +184,12 @@ function makePackageThemeObject(
 
 	if (Object.keys(options).length > 0) {
 		theme.options = options;
+	}
+
+	const recommends = parseRecommends(module.recommends);
+
+	if (recommends.length > 0) {
+		theme.recommends = recommends;
 	}
 
 	const featureDefaults = parseFeatureValues(module.features);

@@ -7,6 +7,7 @@ export type ConfigTheme = {
 	options?: ThemeOptions;
 	features?: import("../features").FeatureValues;
 	client?: string;
+	recommends?: {name: string; description?: string; install?: string; installed?: boolean}[];
 	author?: string;
 	repositoryUrl?: string;
 };

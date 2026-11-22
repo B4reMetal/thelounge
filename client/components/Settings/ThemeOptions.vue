@@ -11,6 +11,12 @@
 				>Source</a
 			>
 		</p>
+		<p v-for="rec in missingRecommendations" :key="rec.name" class="theme-recommends">
+			Goes well with <strong>{{ rec.name }}</strong><template v-if="rec.description"
+				>: {{ rec.description }}</template
+			>. Not installed on this Lounge; the server's admin can add it with
+			<code>{{ rec.install || `thelounge install ${rec.name}` }}</code>
+		</p>
 		<template v-if="entries.length">
 			<h2>Theme options</h2>
 			<div v-for="[key, option] in entries" :key="key" class="theme-option">
@@ -84,6 +90,11 @@
 	opacity: 0.8;
 }
 
+.theme-options .theme-recommends {
+	margin: 6px 0 0;
+	opacity: 0.8;
+}
+
 .theme-options .theme-option {
 	margin-bottom: 10px;
 }
@@ -117,6 +128,10 @@ export default defineComponent({
 			return selectedTheme(store);
 		});
 		const entries = computed(() => Object.entries(theme.value?.options || {}));
+		// Packages the theme recommends that aren't installed here
+		const missingRecommendations = computed(() =>
+			(theme.value?.recommends || []).filter((r) => !r.installed)
+		);
 		const values = computed(() => {
 			void store.state.settings.themeOptions;
 			return theme.value ? themeOptionValues(store, theme.value) : {};
@@ -124,7 +139,7 @@ export default defineComponent({
 
 		const set = (key: string, value: ThemeOptionValue) => setThemeOption(store, key, value);
 
-		return {theme, entries, values, set};
+		return {theme, entries, missingRecommendations, values, set};
 	},
 });
 </script>

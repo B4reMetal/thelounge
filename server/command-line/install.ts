@@ -11,6 +11,7 @@ import fspromises from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 import {setAllowed, wantsAdvancedApi} from "../plugins/packages/advanced.js";
+import {parseRecommends} from "../plugins/packages/themes.js";
 
 interface CustomMetadata {
 	name: string;
@@ -18,6 +19,7 @@ interface CustomMetadata {
 	thelounge?: {
 		supports?: string;
 		api?: unknown;
+		recommends?: unknown;
 	};
 	author?: unknown;
 	repository?: unknown;
@@ -137,6 +139,19 @@ program
 					}
 				})
 				.then(() => {
+					// Packages that go well with this one (never installed automatically)
+					for (const rec of parseRecommends(json.thelounge?.recommends)) {
+						if (fs.existsSync(Config.getPackageModulePath(rec.name))) {
+							continue;
+						}
+
+						log.info(
+							`${json.name} recommends ${colors.bold(rec.name)}${
+								rec.description ? ` (${rec.description})` : ""
+							}: ${colors.green(rec.install || `thelounge install ${rec.name}`)}`
+						);
+					}
+
 					if (!wantsServer) {
 						return;
 					}

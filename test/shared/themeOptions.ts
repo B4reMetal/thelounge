@@ -7,7 +7,7 @@ import {
 	themeOptionAttribute,
 	themeOptionLimits,
 } from "../../shared/themeOptions.js";
-import {authorName, sourceUrl} from "../../server/plugins/packages/themes.js";
+import {authorName, parseRecommends, sourceUrl} from "../../server/plugins/packages/themes.js";
 
 const manifest = {
 	messageDisplay: {
@@ -167,6 +167,33 @@ describe("theme options", function () {
 			expect(sourceUrl("http://example.com/x")).to.equal(undefined);
 			expect(sourceUrl("javascript:alert(1)")).to.equal(undefined);
 			expect(sourceUrl("https://user:pw@example.com/x")).to.equal(undefined);
+		});
+	});
+
+	describe("recommended packages", function () {
+		it("takes names or {name, description, install}, and drops anything odd", function () {
+			expect(
+				parseRecommends([
+					"thelounge-tracker-avatars",
+					{
+						name: "@scope/pkg",
+						description: "nice",
+						install: "thelounge install github:owner/pkg",
+					},
+					{name: "Not Valid"},
+					{name: "evil", install: "rm -rf /"},
+					42,
+				])
+			).to.deep.equal([
+				{name: "thelounge-tracker-avatars"},
+				{
+					name: "@scope/pkg",
+					description: "nice",
+					install: "thelounge install github:owner/pkg",
+				},
+				{name: "evil"},
+			]);
+			expect(parseRecommends("nope")).to.deep.equal([]);
 		});
 	});
 });

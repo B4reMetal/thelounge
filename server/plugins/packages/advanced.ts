@@ -259,15 +259,13 @@ export function advancedApiFor(pkg: string) {
 		}),
 		trackers: Object.freeze({
 			/** A tracker from config.js by id, or null. */
-			get(id: string): {id: string; name: string; avatarUrl?: string} | null {
+			get(id: string): {id: string; name: string} | null {
 				const t = Config.values.trackers?.[id];
-				return t && !t.disabled ? {id, name: t.name || id, avatarUrl: t.avatarUrl} : null;
+				return t && !t.disabled ? {id, name: t.name || id} : null;
 			},
-			/** Trackers of a network, as the client gets them (with avatarUrl when set). */
-			forNetwork(network: Network): (TrackerInfo & {avatarUrl?: string})[] {
-				return (
-					Config.getTrackersForHost(network.host, network.irc?.network?.server) || []
-				).map((t) => ({...t, avatarUrl: Config.values.trackers?.[t.id]?.avatarUrl}));
+			/** Trackers of a network, as the client gets them. */
+			forNetwork(network: Network): TrackerInfo[] {
+				return Config.getTrackersForHost(network.host, network.irc?.network?.server) || [];
 			},
 		}),
 		/** This package's settings from config.js: packageConfig["<package>"]. */

@@ -16,7 +16,7 @@ import {
 	type TrackerConfig,
 	type TrackerInfo,
 } from "../shared/types/network.js";
-import {isUsableAvatarUrl, isUsableProfileUrl, trackerNickPlaceholder} from "../shared/trackers.js";
+import {isUsableProfileUrl, trackerNickPlaceholder} from "../shared/trackers.js";
 
 export type WebIRC = {
 	[key: string]: unknown;
@@ -190,11 +190,6 @@ class Config {
 				if (typeof tracker!.userHost === "string" && tracker!.userHost) {
 					info.userHost = tracker!.userHost;
 				}
-			}
-
-			// The tracker has an avatar address; a package (tracker avatars) may use it
-			if (isUsableAvatarUrl(tracker!.avatarUrl)) {
-				info.avatars = true;
 			}
 
 			result.push(info);

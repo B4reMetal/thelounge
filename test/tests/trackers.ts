@@ -127,7 +127,6 @@ describe("Config trackers", function () {
 					id: "SP",
 					name: "Seedpool",
 					profileUrl: "https://seedpool.org/users/{nick}",
-					avatars: true,
 				},
 			]);
 			// No profiles by nick there, the entry only scopes the bridge matcher

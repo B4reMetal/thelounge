@@ -424,9 +424,6 @@ export default {
 	//   tracker's users looks like, with `*` for any text. A link is only
 	//   offered for users it matches, which also tells the tracker's users
 	//   apart in private messages on a network it shares with others.
-	// - `avatarUrl` (optional): address of a user's avatar image, with `{nick}`
-	//   where the nick goes. Used by the tracker avatars package, which fetches
-	//   and caches them; nothing happens with it without that package.
 	// - `disabled` (optional): set to `true` to ignore the entry.
 	//
 	// What you set here is merged with the list below, entry by entry, so you
@@ -472,7 +469,6 @@ export default {
 			name: "Seedpool",
 			network: "irc.seedpool.org",
 			profileUrl: "https://seedpool.org/users/{nick}",
-			avatarUrl: "https://seedpool.org/authenticated-images/user-avatars/{nick}",
 		},
 		HHD: {
 			name: "HomieHelpdesk",
@@ -525,14 +521,11 @@ export default {
 			name: "MidnightScene",
 			network: "irc.midnightscene.cc",
 			profileUrl: "https://midnightscene.cc/users/{nick}",
-			avatarUrl: "https://midnightscene.cc/authenticated-images/user-avatars/{nick}",
 		},
 		"OE+": {
 			name: "OnlyEncodes+",
 			network: "irc.onlyencodes.cc",
 			profileUrl: "https://onlyencodes.cc/users/{nick}",
-			// Older UNIT3D: avatars are files named after the user
-			avatarUrl: "https://onlyencodes.cc/files/img/{nick}.png",
 		},
 		IHD: {
 			name: "InfinityHD",
@@ -548,7 +541,6 @@ export default {
 			name: "Zenith",
 			network: "irc.znth.cx",
 			profileUrl: "https://znth.cx/users/{nick}",
-			avatarUrl: "https://znth.cx/authenticated-images/user-avatars/{nick}",
 		},
 		ANT: {
 			name: "Anthelion",

@@ -1,4 +1,7 @@
 import {expect} from "chai";
+import fs from "fs";
+import path from "path";
+import Config from "../../server/config.js";
 import {
 	advancedApiFor,
 	callMethod,
@@ -14,7 +17,7 @@ import type Client from "../../server/client.js";
 describe("advanced package API", function () {
 	afterEach(function () {
 		forgetPackage("test-pkg");
-		setAllowed("test-pkg", false);
+		fs.rmSync(path.join(Config.getPackagesPath(), "allowed-server-packages.json"), {force: true});
 	});
 
 	it("is only for packages that ask for it and are allowed", function () {

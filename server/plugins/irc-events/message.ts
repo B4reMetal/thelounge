@@ -8,7 +8,7 @@ import User from "../../models/user.js";
 import {MessageType} from "../../../shared/types/msg.js";
 import {ChanType} from "../../../shared/types/chan.js";
 import {MessageEventArgs} from "irc-framework";
-import avatars from "../avatars.js";
+import {messageEvent} from "../packages/advanced.js";
 
 const nickRegExp = /(?:\x03[0-9]{1,2}(?:,[0-9]{1,2})?)?([\p{Letter}\p{Number}_[\]\\`^{|}-]+)/gu;
 
@@ -175,17 +175,9 @@ export default <IrcEventHandler>function (this: Client, irc, network) {
 
 		chan.pushMessage(this, msg, !msg.self);
 
-		// People who speak (in channels and private messages) are the ones worth showing an avatar for
-		if (
-			!msg.self &&
-			(chan.type === ChanType.CHANNEL || chan.type === ChanType.QUERY) &&
-			[MessageType.MESSAGE, MessageType.ACTION].includes(data.type)
-		) {
-			avatars.noteSpeaker(
-				network,
-				data.nick,
-				chan.type === ChanType.QUERY ? {query: true} : {channel: chan.name}
-			);
+		// For packages with the advanced API (e.g. tracker avatars of who speaks)
+		if (chan.type === ChanType.CHANNEL || chan.type === ChanType.QUERY) {
+			messageEvent(this, network, chan, msg);
 		}
 
 		// Same messages the client notifies about with "Notify for all messages" on

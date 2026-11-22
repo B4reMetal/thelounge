@@ -15,6 +15,7 @@ import {navigate, switchToChannel} from "./router";
 import {feature} from "./features";
 import {browseChannels, backToConversation} from "./helpers/browseChannels";
 import {toggleProfilePanel} from "./profiles";
+import socket from "./socket";
 
 /**
  * Theme client modules (version 1). A theme package can name a client module in
@@ -33,6 +34,11 @@ import {toggleProfilePanel} from "./profiles";
  * (mounted, methods...) is turned off in this build. A component that throws is
  * removed.
  * Switching away from a theme with a module reloads the page.
+ *
+ * Other packages can have a client module too (same field); those load for
+ * everyone. Packages with the advanced server API also get rpc() for their
+ * server methods, onPush() for messages their server sends, and onInit() run
+ * on every (re)connection.
  */
 
 export const themeApiVersion = 1;
@@ -60,8 +66,71 @@ export function removeRegistration(name: SlotName, id: number) {
 	);
 }
 
+// Calls to packages' server methods waiting for an answer
+const pendingRpc = new Map<string, (r: {result?: unknown; error?: string}) => void>();
+const pushListeners = new Map<string, ((data: unknown) => void)[]>(); // `${pkg} ${event}`
+const initListeners: (() => void)[] = [];
+let rpcCounter = 0;
+
+socket.on("package:rpc:result", (r) => {
+	pendingRpc.get(r.id)?.(r);
+	pendingRpc.delete(r.id);
+});
+
+socket.on("package:push", (p) => {
+	for (const fn of pushListeners.get(`${p.pkg} ${p.event}`) || []) {
+		try {
+			fn(p.data);
+		} catch (e) {
+			// eslint-disable-next-line no-console
+			console.error(`Package ${p.pkg}: ${p.event} listener failed`, e);
+		}
+	}
+});
+
+socket.on("init", () => {
+	for (const fn of initListeners) {
+		try {
+			fn();
+		} catch (e) {
+			// eslint-disable-next-line no-console
+			console.error("A package's init listener failed", e);
+		}
+	}
+});
+
 function apiFor(theme: string) {
+	const pkg = decodeURIComponent(theme);
+
 	return Object.freeze({
+		rpc(method: string, args?: unknown): Promise<unknown> {
+			return new Promise((resolve, reject) => {
+				const id = `p${++rpcCounter}`;
+				const timer = setTimeout(() => {
+					pendingRpc.delete(id);
+					reject(new Error("timed out"));
+				}, 30000);
+
+				pendingRpc.set(id, (r) => {
+					clearTimeout(timer);
+
+					if (r.error) {
+						reject(new Error(r.error));
+					} else {
+						resolve(r.result);
+					}
+				});
+				socket.emit("package:rpc", {pkg, id, method, args});
+			});
+		},
+		onPush(event: string, fn: (data: unknown) => void) {
+			const key = `${pkg} ${event}`;
+			pushListeners.set(key, [...(pushListeners.get(key) || []), fn]);
+		},
+		onInit(fn: () => void) {
+			initListeners.push(fn);
+		},
+		socketConnected: () => socket.connected,
 		version: themeApiVersion,
 		// Components use setup(); the options API (mounted, methods...) is off in this build
 		vue: Object.freeze({
@@ -137,5 +206,36 @@ export async function loadThemeModule(isChange = false) {
 	} catch (e) {
 		// eslint-disable-next-line no-console
 		console.error(`Theme ${theme.name}: its client module failed to load`, e);
+	}
+}
+
+const loadedPackages = new Set<string>();
+
+/** Loads the client modules of non-theme packages (once each). */
+export async function loadPackageModules() {
+	if (/[?&]nomodules/.test(window.location.search)) {
+		return;
+	}
+
+	for (const mod of store.state.serverConfiguration?.packageModules || []) {
+		if (loadedPackages.has(mod.name)) {
+			continue;
+		}
+
+		loadedPackages.add(mod.name);
+
+		try {
+			const url = new URL(`packages/${mod.name}/${mod.client}`, document.baseURI).href;
+			const imported = (await import(/* webpackIgnore: true */ url)) as {
+				default?: (api: ReturnType<typeof apiFor>) => void;
+			};
+
+			if (typeof imported.default === "function") {
+				imported.default(apiFor(mod.name));
+			}
+		} catch (e) {
+			// eslint-disable-next-line no-console
+			console.error(`Package ${mod.name}: its client module failed to load`, e);
+		}
 	}
 }

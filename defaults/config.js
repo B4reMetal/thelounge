@@ -425,7 +425,8 @@ export default {
 	//   offered for users it matches, which also tells the tracker's users
 	//   apart in private messages on a network it shares with others.
 	// - `avatarUrl` (optional): address of a user's avatar image, with `{nick}`
-	//   where the nick goes. See `avatars` below for how these are fetched.
+	//   where the nick goes. Used by the tracker avatars package, which fetches
+	//   and caches them; nothing happens with it without that package.
 	// - `disabled` (optional): set to `true` to ignore the entry.
 	//
 	// What you set here is merged with the list below, entry by entry, so you
@@ -600,33 +601,21 @@ export default {
 		},
 	},
 
-	// ### `avatars`
+	// ### `packageConfig`
 	//
-	// Avatars for the users of trackers that have an `avatarUrl` (see
-	// `trackers`). IRC has no profile pictures, and tracker avatars usually need
-	// a login, so The Lounge doesn't fetch them itself: a browser that is
-	// logged in to the tracker does, through the avatar userscript a theme
-	// provides. The server decides who to look up, keeps the rate down and
-	// caches the images on disk for every device. Without such a browser open,
-	// nothing is fetched and the queue just waits.
+	// Settings of installed packages, by package name. Each package documents
+	// its own; for example:
 	//
-	// Only people who speak in the tracker's channels, and nicks someone opens,
-	// are looked up; never whole user lists.
+	// ```js
+	// packageConfig: {
+	// 	"thelounge-tracker-avatars": {ratePerMinute: 5},
+	// },
+	// ```
 	//
-	// - `enable`: set to `false` to turn avatars off.
-	// - `ratePerMinute`: most lookups per minute per tracker, for the whole
-	//   server.
-	// - `refreshDays`: a cached avatar is checked again (cheaply, "has it
-	//   changed?") at most this often, and only when its user is active.
-	// - `notFoundDays`: how long "this user has no avatar" is remembered.
-	//
-	// Images are kept in the `cache/avatars` folder of The Lounge's home.
-	avatars: {
-		enable: true,
-		ratePerMinute: 5,
-		refreshDays: 30,
-		notFoundDays: 7,
-	},
+	// Packages that run server code with the advanced package API only do so
+	// once allowed: `thelounge packages allow <name>` (you are asked when
+	// installing them).
+	packageConfig: {},
 
 	// ### `gifs`
 	//

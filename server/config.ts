@@ -79,13 +79,6 @@ type Ldap = {
 export type {Gifs} from "../shared/types/gifs.js";
 import type {Gifs} from "../shared/types/gifs.js";
 
-export type Avatars = {
-	enable: boolean;
-	ratePerMinute: number;
-	refreshDays: number;
-	notFoundDays: number;
-};
-
 type Debug = {
 	logs: boolean;
 	ircFramework: boolean;
@@ -135,8 +128,9 @@ export type ConfigType = {
 	useHexIp: boolean;
 	webirc?: WebIRC;
 	trackers: Record<string, TrackerConfig | null> | null;
-	avatars: Avatars;
 	gifs: Gifs;
+	// Settings of packages, by package name (see each package's documentation)
+	packageConfig: Record<string, Record<string, unknown>>;
 	identd: Identd;
 	oidentd?: string;
 	ldap: Ldap;
@@ -198,7 +192,8 @@ class Config {
 				}
 			}
 
-			if (this.values.avatars?.enable && isUsableAvatarUrl(tracker!.avatarUrl)) {
+			// The tracker has an avatar address; a package (tracker avatars) may use it
+			if (isUsableAvatarUrl(tracker!.avatarUrl)) {
 				info.avatars = true;
 			}
 

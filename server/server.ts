@@ -23,7 +23,7 @@ import themes from "./plugins/packages/themes.js";
 themes.loadLocalThemes();
 
 import packages from "./plugins/packages/index.js";
-import avatars, {avatarContentTypes, avatarFileRegex} from "./plugins/avatars.js";
+import {callMethod, routeFor, setTransport, socketEvent} from "./plugins/packages/advanced.js";
 import {NetworkWithIrcFramework} from "./models/network.js";
 import Utils from "./command-line/utils.js";
 import type {
@@ -133,24 +133,17 @@ export default async function (
 		return res.sendFile(theme.filename);
 	});
 
-	// Cached tracker avatars. File names are unguessable (keyed with a server
-	// secret) and change when the image does, so they can be cached for good.
-	app.get("/avatars/:file", (req, res) => {
-		const file = req.params.file;
+	// Routes of packages with the advanced API (see plugins/packages/advanced.ts)
+	app.get(/^\/packages\/([^/]+)\/x\/(.+)$/, (req, res) => {
+		const params = req.params as unknown as Record<string, string>;
+		const route = routeFor(decodeURIComponent(params[0]), params[1]);
 
-		if (!avatars.enabled || !avatarFileRegex.test(file)) {
+		if (!route) {
 			return res.status(404).send("Not found");
 		}
 
-		const ext = file.slice(file.lastIndexOf(".") + 1);
-		res.setHeader("Content-Type", avatarContentTypes[ext]);
-		res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
 		res.setHeader("X-Content-Type-Options", "nosniff");
-		return res.sendFile(path.join(avatars.getDir(), file), (err) => {
-			if (err && !res.headersSent) {
-				res.status(404).send("Not found");
-			}
-		});
+		return route.handler(req, res, route.rest);
 	});
 
 	app.get("/packages/:package/:filename", (req, res) => {
@@ -288,16 +281,14 @@ export default async function (
 
 				manager = new ClientManager();
 
-				if (Config.values.avatars?.enable) {
-					avatars.init({
-						users: () =>
-							(manager?.clients || []).map((c) => ({
-								name: c.name,
-								networks: c.networks,
-								emit: (event, data) => c.emit(event, data),
-							})),
-					});
-				}
+				// How packages with the advanced API reach users and their browsers
+				setTransport({
+					clients: () => manager?.clients || [],
+					toClient: (client, pkg, event, data) =>
+						client.emit("package:push", {pkg, event, data}),
+					toSocket: (socketId, pkg, event, data) =>
+						sockets?.to(socketId).emit("package:push", {pkg, event, data}),
+				});
 
 				await packages.loadPackages();
 
@@ -562,8 +553,27 @@ function initializeClient(
 	}
 
 	socket.on("disconnect", function () {
-		avatars.unregisterFetcher(socket.id);
+		socketEvent("socket:disconnect", client, socket.id);
 		process.nextTick(() => client.clientDetach(socket.id));
+	});
+
+	socketEvent("socket:connect", client, socket.id);
+
+	// A method call from a package's client module (see plugins/packages/advanced.ts)
+	socket.on("package:rpc", (data) => {
+		if (
+			!_.isPlainObject(data) ||
+			typeof data.pkg !== "string" ||
+			typeof data.method !== "string" ||
+			typeof data.id !== "string" ||
+			data.id.length > 64
+		) {
+			return;
+		}
+
+		void callMethod(client, socket.id, data.pkg, data.method, data.args).then((reply) =>
+			socket.emit("package:rpc:result", {pkg: data.pkg, id: data.id, ...reply})
+		);
 	});
 
 	// Profiles and conversation details (a DM's profile panel, the details page)
@@ -727,48 +737,6 @@ function initializeClient(
 		searchGifs(data.q, pos)
 			.then((page) => reply(page))
 			.catch(() => reply({items: [], next: null, error: "GIF search failed"}));
-	});
-
-	// Tracker avatars: a browser logged in to a tracker offers to fetch for us
-	// (see server/plugins/avatars.ts), and anyone can ask for a nick they open.
-	socket.on("avatars:fetcher", (data) => {
-		if (_.isPlainObject(data)) {
-			avatars.registerFetcher(socket.id, client.name, data.hosts, (job) =>
-				socket.emit("avatars:fetch", job)
-			);
-		}
-	});
-
-	socket.on("avatars:want", (data) => {
-		if (
-			!_.isPlainObject(data) ||
-			typeof data.network !== "string" ||
-			typeof data.nick !== "string"
-		) {
-			return;
-		}
-
-		const network = client.networks.find((n) => n.uuid === data.network);
-
-		if (network) {
-			const chan =
-				typeof data.channel === "string" ? network.getChannel(data.channel) : undefined;
-			const scope = !chan
-				? undefined
-				: chan.type === ChanType.QUERY
-					? {query: true}
-					: {channel: chan.name};
-
-			for (const tracker of avatars.trackersFor(network, scope)) {
-				avatars.want(tracker, data.nick, 1);
-			}
-		}
-	});
-
-	socket.on("avatars:result", (data) => {
-		if (_.isPlainObject(data)) {
-			avatars.handleResult(socket.id, data);
-		}
 	});
 
 	socket.on("input", (data) => {
@@ -1326,10 +1294,6 @@ function initializeClient(
 			token: tokenToSend,
 		});
 		socket.emit("commands", inputs.getCommands());
-
-		if (avatars.enabled) {
-			socket.emit("avatars:update", avatars.listFor(client));
-		}
 	};
 
 	if (Config.values.public) {
@@ -1369,6 +1333,7 @@ function getClientConfiguration(): SharedConfiguration | LockedSharedConfigurati
 		version: Helper.getVersionNumber(),
 		gitCommit: Helper.getGitCommit(),
 		themes: themes.getAll(),
+		packageModules: packages.getClientModules(),
 		defaultTheme: Config.values.theme,
 		public: Config.values.public,
 		useHexIp: Config.values.useHexIp,

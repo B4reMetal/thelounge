@@ -87,7 +87,7 @@ export type TrackerInfo = {
 	// Absent when the tracker has no usable profile address
 	profileUrl?: string;
 	userHost?: string;
-	// True when the server caches avatars for this tracker's users
+	// True when the tracker has an avatar address (used by the tracker avatars package)
 	avatars?: boolean;
 };
 

@@ -75,11 +75,6 @@ interface ServerToClientEvents {
 
 	nick: EventHandler<{network: string; nick: string}>;
 
-	// Tracker avatars: cached avatars (all on connect, then changes; url null = removed),
-	// and a fetch job for a browser that offered to fetch (see server/plugins/avatars.ts)
-	"avatars:update": EventHandler<{tracker: string; nick: string; url: string | null}[]>;
-	"avatars:fetch": EventHandler<{id: string; url: string; ifModifiedSince?: string}>;
-
 	// Profiles and conversation details
 	"profile:info": EventHandler<{
 		target: number;
@@ -93,6 +88,10 @@ interface ServerToClientEvents {
 		more: boolean;
 	}>;
 	"details:preview": EventHandler<{url: string; preview: import("./msg").LinkPreview | null}>;
+
+	// Packages with the advanced API (see server/plugins/packages/advanced.ts)
+	"package:push": EventHandler<{pkg: string; event: string; data: unknown}>;
+	"package:rpc:result": EventHandler<{pkg: string; id: string; result?: unknown; error?: string}>;
 
 	// GIF picker results (see server/plugins/gifs.ts)
 	"gifs:results": EventHandler<{
@@ -194,19 +193,10 @@ interface ClientToServerEvents {
 	"tracker:user": EventHandler<{target: number; nick: string}>;
 
 	"gifs:search": EventHandler<{id: string; q: string; pos?: string | null}>;
+	"package:rpc": EventHandler<{pkg: string; id: string; method: string; args?: unknown}>;
 	"profile:get": EventHandler<{target: number; nick: string}>;
 	"details:links": EventHandler<{target: number; offset: number}>;
 	"details:preview": EventHandler<{url: string}>;
-	"avatars:fetcher": EventHandler<{hosts: string[]}>;
-	"avatars:want": EventHandler<{network: string; nick: string; channel?: string}>;
-	"avatars:result": EventHandler<{
-		id: string;
-		status: number;
-		contentType?: string;
-		lastModified?: string;
-		finalUrl?: string;
-		data?: ArrayBuffer;
-	}>;
 
 	"push:register": EventHandler<PushSubscriptionJSON>;
 	"push:unregister": NoPayloadEventHandler;

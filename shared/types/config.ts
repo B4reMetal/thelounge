@@ -21,6 +21,8 @@ type SharedConfigurationBase = {
 	version: string;
 	gitCommit: string | null;
 	themes: ConfigTheme[];
+	// Client modules of non-theme packages (theme modules come with their theme)
+	packageModules?: {name: string; client: string}[];
 	defaultTheme: string;
 	fileUploadMaxFileSize?: number;
 	// GIF picker provider, null when GIFs are off

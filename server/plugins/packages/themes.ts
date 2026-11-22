@@ -180,7 +180,8 @@ export function authorName(author: unknown): string | undefined {
 		return undefined;
 	}
 
-	const name = raw.replace(/<[^>]*>|\([^)]*\)/g, "").trim();
+	// "Name <email> (url)": the name is what comes before either
+	const name = raw.split(/[<(]/, 1)[0].trim();
 	return name && name.length <= 80 ? name : undefined;
 }
 

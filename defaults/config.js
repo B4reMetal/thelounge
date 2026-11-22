@@ -543,7 +543,8 @@ export default {
 			name: "OnlyEncodes+",
 			network: "irc.onlyencodes.cc",
 			profileUrl: "https://onlyencodes.cc/users/{nick}",
-			avatarUrl: "https://onlyencodes.cc/authenticated-images/user-avatars/{nick}",
+			// Older UNIT3D: avatars are files named after the user
+			avatarUrl: "https://onlyencodes.cc/files/img/{nick}.png",
 		},
 		IHD: {
 			name: "InfinityHD",

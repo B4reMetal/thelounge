@@ -28,7 +28,7 @@
 				@focus="activateSearch"
 			/>
 		</div>
-		<HomeDirectMessages v-if="!searchText" />
+		<HomeDirectMessages v-if="!searchText && homeDmsOn" />
 		<div v-if="searchText" class="jump-to-results">
 			<div v-if="results.length">
 				<div
@@ -101,25 +101,7 @@
 							network.isJoinChannelShown = !network.isJoinChannelShown
 						"
 					/>
-					<!-- Hidden unless a theme shows them: this network's server messages
-					     (its lobby) and its channel browser -->
-					<button
-						type="button"
-						class="network-lobby-open"
-						:class="{
-							active: store.state.activeChannel?.channel === network.channels[0],
-						}"
-						:aria-label="`Server messages of ${network.name}`"
-						:title="`Server messages of ${network.name}`"
-						@click="switchToChannel(network.channels[0])"
-					/>
-					<button
-						type="button"
-						class="network-browse"
-						:aria-label="`Browse channels on ${network.name}`"
-						:title="`Browse channels on ${network.name}`"
-						@click="browseChannels(network)"
-					/>
+					<ThemeSlot name="network.header" :props="{network}" />
 					<JoinChannel
 						v-if="network.isJoinChannelShown"
 						:network="network"
@@ -160,43 +142,18 @@
 					</Draggable>
 
 					<DirectMessageSection
+						v-if="!homeDmsOn"
 						:network="network"
 						:queries="network.channels.filter((c) => c.type === 'query')"
 					/>
 				</div>
 			</template>
 		</Draggable>
-		<!-- Hidden unless a theme shows them: add a network, browse channels -->
-		<div v-if="!searchText" class="rail-actions">
-			<router-link v-slot:default="{navigate}" to="/connect" custom>
-				<button
-					type="button"
-					class="rail-action rail-add-network"
-					aria-label="Add a network"
-					title="Add a network"
-					@click="navigate"
-				/>
-			</router-link>
-			<router-link v-slot:default="{navigate}" to="/discover" custom>
-				<button
-					type="button"
-					class="rail-action rail-browse"
-					aria-label="Discover channels on all networks"
-					title="Discover channels"
-					@click="navigate"
-				/>
-			</router-link>
-		</div>
+		<ThemeSlot v-if="!searchText" name="sidebar.rail.end" />
 	</div>
 </template>
 
 <style>
-.rail-actions,
-.network-browse,
-.network-lobby-open {
-	display: none;
-}
-
 .jump-to-input {
 	margin: 8px;
 	position: relative;
@@ -268,16 +225,17 @@ import Channel from "./Channel.vue";
 import JoinChannel from "./JoinChannel.vue";
 import DirectMessageSection from "./DirectMessageSection.vue";
 import HomeDirectMessages from "./HomeDirectMessages.vue";
+import ThemeSlot from "./ThemeSlot.vue";
 
 import socket from "../js/socket";
 import collapseNetworkHelper from "../js/helpers/collapseNetwork";
 import isIgnoredKeybind from "../js/helpers/isIgnoredKeybind";
 import distance from "../js/helpers/distance";
 import eventbus from "../js/eventbus";
-import {ClientChan, ClientNetwork, NetChan, type SortableEvent} from "../js/types";
+import {ClientChan, NetChan, type SortableEvent} from "../js/types";
 import {useStore} from "../js/store";
 import {switchToChannel} from "../js/router";
-import {ChanType, SpecialChanType} from "../../shared/types/chan";
+import {feature} from "../js/features";
 import Sortable from "sortablejs";
 
 export default defineComponent({
@@ -285,6 +243,7 @@ export default defineComponent({
 	components: {
 		JoinChannel,
 		HomeDirectMessages,
+		ThemeSlot,
 		NetworkLobby,
 		Channel,
 		Draggable,
@@ -467,6 +426,13 @@ export default defineComponent({
 		};
 
 		const activateSearch = () => {
+			// With the quick switcher on, the box opens it instead
+			if (feature("quickSwitcher")) {
+				searchInput.value?.blur();
+				store.commit("quickSwitcherOpen", true);
+				return;
+			}
+
 			if (searchInput.value === document.activeElement) {
 				return;
 			}
@@ -487,35 +453,6 @@ export default defineComponent({
 			if (sidebarWasClosed.value) {
 				store.commit("sidebarOpen", false);
 			}
-		};
-
-		// Runs /list on the current network and opens the channel browser
-		const browseChannels = (network: ClientNetwork) => {
-			const findList = () =>
-				network.channels.find(
-					(c) => c.type === ChanType.SPECIAL && c.special === SpecialChanType.CHANNELLIST
-				);
-
-			socket.emit("input", {target: network.channels[0].id, text: "/list"});
-
-			const existing = findList();
-
-			if (existing) {
-				switchToChannel(existing);
-				return;
-			}
-
-			// The list window is created when the server starts answering
-			const stop = store.watch(
-				() => findList(),
-				(list) => {
-					if (list) {
-						stop();
-						switchToChannel(list);
-					}
-				}
-			);
-			setTimeout(stop, 10000);
 		};
 
 		const toggleSearch = (event: Mousetrap.ExtendedKeyboardEvent) => {
@@ -632,9 +569,10 @@ export default defineComponent({
 			Mousetrap.unbind("alt+j");
 		});
 
+		const homeDmsOn = computed(() => feature("homeDms"));
+
 		return {
-			browseChannels,
-			switchToChannel,
+			homeDmsOn,
 			store,
 			networklist,
 			searchInput,

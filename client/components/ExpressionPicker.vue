@@ -1,5 +1,5 @@
 <template>
-	<span class="expression-picker-wrap">
+	<span v-if="gifsEnabled || emojiEnabled" class="expression-picker-wrap">
 		<button
 			v-if="gifsEnabled"
 			id="gif"
@@ -10,6 +10,7 @@
 			@click="toggle('gifs')"
 		/>
 		<button
+			v-if="emojiEnabled"
 			id="emoji"
 			type="button"
 			aria-label="Pick an emoji"
@@ -37,6 +38,7 @@
 					GIFs
 				</button>
 				<button
+					v-if="emojiEnabled"
 					type="button"
 					role="tab"
 					class="expression-picker-tab"
@@ -253,6 +255,7 @@ import emojiMap from "../js/helpers/simplemap.json" with {type: "json"};
 import storage from "../js/localStorage";
 import socket from "../js/socket";
 import {useStore} from "../js/store";
+import {feature} from "../js/features";
 import type {Gif} from "../../shared/types/gifs";
 
 type Item = {name: string; emoji: string};
@@ -332,7 +335,11 @@ export default defineComponent({
 		const panel = ref<HTMLElement | null>(null);
 		const searchInput = ref<HTMLInputElement | null>(null);
 
-		const gifsEnabled = computed(() => store.state.serverConfiguration?.gifs || null);
+		// The GIF picker needs GIF search on the server, and both can be turned off
+		const gifsEnabled = computed(() =>
+			feature("gifPicker") ? store.state.serverConfiguration?.gifs || null : null
+		);
+		const emojiEnabled = computed(() => feature("emojiPicker"));
 
 		// --- Emoji ---
 
@@ -634,6 +641,7 @@ export default defineComponent({
 			panel,
 			searchInput,
 			gifsEnabled,
+			emojiEnabled,
 			emojiSearch,
 			hovered,
 			collapsed,

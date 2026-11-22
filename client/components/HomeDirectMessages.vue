@@ -1,5 +1,5 @@
 <template>
-	<!-- Hidden unless a theme shows it: a "home" with the direct messages of every network -->
+	<!-- "All conversations in one place" (the homeDms feature): every network's DMs -->
 	<div class="home" :class="{open: store.state.homeOpen}">
 		<button
 			type="button"
@@ -16,8 +16,8 @@
 		</button>
 		<div class="home-dms" role="region" aria-label="Direct messages of all networks">
 			<div class="home-dms-header">Direct Messages</div>
-			<!-- Hidden unless a theme shows it -->
 			<button
+				v-if="quickSwitcherOn"
 				type="button"
 				class="quick-switcher-open"
 				@click="store.commit('quickSwitcherOpen', true)"
@@ -25,7 +25,7 @@
 				Find or start a conversation
 			</button>
 			<input
-				v-if="rows.length > 5"
+				v-if="rows.length > 5 && !quickSwitcherOn"
 				v-model="filterText"
 				type="text"
 				class="home-dms-filter input"
@@ -56,16 +56,10 @@
 	</div>
 </template>
 
-<style>
-.home,
-.quick-switcher-open {
-	display: none;
-}
-</style>
-
 <script lang="ts">
 import {computed, defineComponent, ref} from "vue";
 import {useStore} from "../js/store";
+import {feature} from "../js/features";
 import {ChanType} from "../../shared/types/chan";
 import Channel from "./Channel.vue";
 
@@ -114,9 +108,10 @@ export default defineComponent({
 			() => rows.value.filter((r) => r.channel.unread > 0 && !r.channel.muted).length
 		);
 
-		const openHome = () => store.commit("homeOpen", true);
+		const openHome = () => store.commit("homeOpen", !store.state.homeOpen);
+		const quickSwitcherOn = computed(() => feature("quickSwitcher"));
 
-		return {store, filterText, rows, shown, unreadCount, openHome};
+		return {store, filterText, rows, shown, unreadCount, openHome, quickSwitcherOn};
 	},
 });
 </script>

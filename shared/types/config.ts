@@ -5,6 +5,8 @@ export type ConfigTheme = {
 	name: string;
 	themeColor: string | null;
 	options?: ThemeOptions;
+	features?: import("../features").FeatureValues;
+	client?: string;
 	author?: string;
 	repositoryUrl?: string;
 };

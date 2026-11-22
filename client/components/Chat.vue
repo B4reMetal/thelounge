@@ -21,30 +21,20 @@
 					:data-name="channel.type === 'query' ? channel.name : undefined"
 				>
 					<SidebarToggle />
-					<span class="title" :aria-label="'Currently open ' + channel.type">{{
-						channel.name
-					}}</span>
-					<!-- Hidden unless a theme shows it: "9 online", opens the member list -->
-					<button
-						v-if="channel.type === 'channel'"
-						type="button"
-						class="title-online"
-						:aria-label="`${onlineCount} online, show the member list`"
-						@click="store.commit('toggleUserlist')"
+					<span
+						class="title"
+						:class="{'has-details': detailsOn}"
+						:aria-label="'Currently open ' + channel.type"
+						:role="detailsOn ? 'button' : undefined"
+						:tabindex="detailsOn ? 0 : undefined"
+						:title="detailsOn ? 'Show details' : undefined"
+						@click="detailsOn && openDetails()"
+						@keydown.enter="detailsOn && openDetails()"
+						>{{ channel.name }}</span
 					>
-						{{ onlineCount }} online
-					</button>
-					<!-- Hidden unless a theme shows them: the details page, the DM profile panel -->
+					<ThemeSlot name="chat.header.title" :props="{network, channel}" />
 					<button
-						v-if="channel.type === 'channel' || channel.type === 'query'"
-						type="button"
-						class="title-details"
-						aria-label="Details: members, media, links and files"
-						title="Details"
-						@click="openDetails"
-					/>
-					<button
-						v-if="channel.type === 'query'"
+						v-if="channel.type === 'query' && profilePanelOn"
 						type="button"
 						class="profile-toggle"
 						:aria-pressed="profilePanel.open ? 'true' : 'false'"
@@ -131,9 +121,9 @@
 						<div class="scroll-down-arrow" />
 					</button>
 					<ChatUserList v-if="channel.type === 'channel'" :channel="channel" />
-					<!-- Hidden unless a theme shows it: the profile next to a DM -->
+					<!-- "Profile next to conversations" (the profilePanel feature) -->
 					<aside
-						v-if="channel.type === 'query' && profilePanel.open"
+						v-if="channel.type === 'query' && profilePanelOn && profilePanel.open"
 						class="profile-panel"
 						aria-label="Profile"
 					>
@@ -174,6 +164,8 @@ import ListInvites from "./Special/ListInvites.vue";
 import ListChannels from "./Special/ListChannels.vue";
 import ListIgnored from "./Special/ListIgnored.vue";
 import ProfileCard from "./ProfileCard.vue";
+import ThemeSlot from "./ThemeSlot.vue";
+import {feature} from "../js/features";
 import {profilePanel, toggleProfilePanel} from "../js/profiles";
 import {navigate} from "../js/router";
 import {defineComponent, PropType, ref, computed, watch, nextTick, onMounted, Component} from "vue";
@@ -193,6 +185,7 @@ export default defineComponent({
 		SidebarToggle,
 		MessageSearchForm,
 		ProfileCard,
+		ThemeSlot,
 	},
 	props: {
 		network: {type: Object as PropType<ClientNetwork>, required: true},
@@ -208,9 +201,12 @@ export default defineComponent({
 		const topicInput = ref<HTMLInputElement | null>(null);
 
 		const openDetails = () => void navigate("ConversationDetails", {id: props.channel.id});
-
-		// Members not marked away
-		const onlineCount = computed(() => props.channel.users.filter((u) => !u.away).length);
+		const detailsOn = computed(
+			() =>
+				feature("conversationDetails") &&
+				(props.channel.type === ChanType.CHANNEL || props.channel.type === ChanType.QUERY)
+		);
+		const profilePanelOn = computed(() => feature("profilePanel"));
 
 		const plainTopic = computed(() => {
 			const topic = props.channel.topic;
@@ -323,10 +319,11 @@ export default defineComponent({
 		});
 
 		return {
-			onlineCount,
 			profilePanel,
 			toggleProfilePanel,
 			openDetails,
+			detailsOn,
+			profilePanelOn,
 			store,
 			messageList,
 			topicInput,

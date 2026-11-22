@@ -6,6 +6,7 @@ import log from "../../log.js";
 import Config from "../../config.js";
 import Utils from "../../command-line/utils.js";
 import {parseThemeOptions, ThemeOptions} from "../../../shared/themeOptions.js";
+import {parseFeatureValues, type FeatureValues} from "../../../shared/features.js";
 
 type Module = {
 	type?: string;
@@ -18,6 +19,8 @@ type ThemeModule = Module & {
 	css: string;
 	files?: string[];
 	options?: unknown;
+	features?: unknown;
+	client?: unknown;
 	// From package.json itself, not its "thelounge" field
 	author?: unknown;
 	repository?: unknown;
@@ -30,6 +33,10 @@ export type ThemeForClient = {
 	name: string;
 	themeColor: string | null;
 	options?: ThemeOptions;
+	// Feature defaults for this theme's users (see shared/features.ts)
+	features?: FeatureValues;
+	// The theme's client module, a file among its public files
+	client?: string;
 	author?: string;
 	repositoryUrl?: string;
 };
@@ -70,6 +77,8 @@ function getAll() {
 				"name",
 				"themeColor",
 				"options",
+				"features",
+				"client",
 				"author",
 				"repositoryUrl",
 			])
@@ -117,6 +126,28 @@ function makePackageThemeObject(
 
 	if (Object.keys(options).length > 0) {
 		theme.options = options;
+	}
+
+	const featureDefaults = parseFeatureValues(module.features);
+
+	if (Object.keys(featureDefaults).length > 0) {
+		theme.features = featureDefaults;
+	}
+
+	if (module.client !== undefined) {
+		const files = module.files || [];
+
+		if (
+			typeof module.client === "string" &&
+			/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}\.m?js$/.test(module.client) &&
+			files.includes(module.client)
+		) {
+			theme.client = module.client;
+		} else {
+			log.warn(
+				`Theme ${moduleName}: "client" must be a .js file listed in the package's "files"`
+			);
+		}
 	}
 
 	const author = authorName(module.author);

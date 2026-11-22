@@ -30,25 +30,7 @@
 			<NetworkList />
 		</div>
 		<footer id="footer">
-			<!-- Hidden unless a theme shows it: who you are on the current network -->
-			<div
-				v-if="identity"
-				class="footer-identity"
-				:data-name="identity.network.nick"
-				:data-network="identity.network.uuid"
-				:data-status="identity.network.status.connected ? 'online' : 'offline'"
-				:title="`${identity.network.nick} on ${identity.network.name}`"
-			>
-				<span class="footer-avatar" aria-hidden="true"></span>
-				<span class="footer-names">
-					<span class="footer-nick">{{ identity.network.nick }}</span>
-					<span class="footer-status">{{
-						identity.network.status.connected
-							? identity.network.name
-							: `${identity.network.name} · disconnected`
-					}}</span>
-				</span>
-			</div>
+			<ThemeSlot name="footer.start" />
 			<span
 				class="tooltipped tooltipped-n tooltipped-no-touch"
 				aria-label="Connect to network"
@@ -80,6 +62,17 @@
 					></button> </router-link
 			></span>
 			<span
+				v-if="discoverOn"
+				class="tooltipped tooltipped-n tooltipped-no-touch"
+				aria-label="Discover channels"
+				><router-link v-slot:default="{navigate, isActive}" to="/discover" custom>
+					<button
+						:class="['icon', 'discover', {active: isActive}]"
+						aria-label="Discover channels"
+						@click="navigate"
+					/> </router-link
+			></span>
+			<span
 				class="tooltipped tooltipped-n tooltipped-no-touch"
 				:aria-label="
 					store.state.serverConfiguration?.isUpdateAvailable
@@ -108,22 +101,19 @@
 	</aside>
 </template>
 
-<style>
-.footer-identity {
-	display: none;
-}
-</style>
-
 <script lang="ts">
 import {computed, defineComponent, nextTick, onMounted, onUnmounted, PropType, ref} from "vue";
 import {useRoute} from "vue-router";
 import {useStore} from "../js/store";
 import NetworkList from "./NetworkList.vue";
+import ThemeSlot from "./ThemeSlot.vue";
+import {feature} from "../js/features";
 
 export default defineComponent({
 	name: "Sidebar",
 	components: {
 		NetworkList,
+		ThemeSlot,
 	},
 	props: {
 		overlay: {type: Object as PropType<HTMLElement | null>, required: true},
@@ -134,15 +124,7 @@ export default defineComponent({
 		const store = useStore();
 		const route = useRoute();
 
-		// The network you're looking at (or last looked at), for the footer's identity
-		const identity = computed(() => {
-			const network =
-				store.state.activeChannel?.network ||
-				store.state.lastActiveChannel?.network ||
-				store.state.networks[0];
-			const current = network && store.getters.findNetwork(network.uuid);
-			return current ? {network: current} : null;
-		});
+		const discoverOn = computed(() => feature("discover"));
 
 		const touchStartPos = ref<Touch | null>();
 		const touchCurPos = ref<Touch | null>();
@@ -298,7 +280,7 @@ export default defineComponent({
 			onTouchMove,
 			onTouchEnd,
 			isPublic,
-			identity,
+			discoverOn,
 		};
 	},
 });

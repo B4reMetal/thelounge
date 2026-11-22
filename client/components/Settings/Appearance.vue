@@ -254,6 +254,8 @@
 			<ThemeOptions />
 		</div>
 
+		<FeatureSettings />
+
 		<div>
 			<h2>Custom Stylesheet</h2>
 			<label for="user-specified-css-input" class="sr-only">
@@ -280,10 +282,11 @@ textarea#user-specified-css-input {
 import {defineComponent} from "vue";
 import {useStore} from "../../js/store";
 import ThemeOptions from "./ThemeOptions.vue";
+import FeatureSettings from "./Features.vue";
 
 export default defineComponent({
 	name: "AppearanceSettings",
-	components: {ThemeOptions},
+	components: {ThemeOptions, FeatureSettings},
 	setup() {
 		const store = useStore();
 

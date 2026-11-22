@@ -22,7 +22,7 @@ import constants from "../js/constants";
 import eventbus from "../js/eventbus";
 import Mousetrap, {ExtendedKeyboardEvent} from "mousetrap";
 import QuickSwitcher from "./QuickSwitcher.vue";
-import {quickSwitcherShown} from "../js/helpers/quickSwitcher";
+import {feature} from "../js/features";
 import throttle from "lodash/throttle";
 import storage from "../js/localStorage";
 import isIgnoredKeybind from "../js/helpers/isIgnoredKeybind";
@@ -108,7 +108,7 @@ export default defineComponent({
 		};
 
 		const openQuickSwitcher = () => {
-			if (!quickSwitcherShown() || store.state.networks.length === 0) {
+			if (!feature("quickSwitcher") || store.state.networks.length === 0) {
 				return true;
 			}
 

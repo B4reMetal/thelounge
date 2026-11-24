@@ -67,7 +67,7 @@ const defaultConfig = {
 		default: true,
 	},
 	notification: {
-		default: true,
+		default: false,
 		sync: "never",
 	},
 	notifyAllMessages: {

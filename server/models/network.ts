@@ -7,6 +7,7 @@ import Prefix from "./prefix.js";
 import Helper, {Hostmask} from "../helper.js";
 import Config, {WebIRC} from "../config.js";
 import STSPolicies from "../plugins/sts.js";
+import {compileHighlightRegex} from "../highlights.js";
 import ClientCertificate, {ClientCertificateType} from "../plugins/clientCertificate.js";
 import Client from "../client.js";
 import {MessageType} from "../../shared/types/msg.js";
@@ -103,6 +104,9 @@ export type NetworkFormData = {
 	username?: string;
 	realname?: string;
 	leaveMessage?: string;
+	highlights?: string;
+	highlightExceptions?: string;
+	ignoreGlobalHighlights?: boolean | string;
 	sasl?: string;
 	saslAccount?: string;
 	saslPassword?: string;
@@ -131,6 +135,12 @@ class Network {
 	username!: string;
 	realname!: string;
 	leaveMessage!: string;
+	// Comma separated custom highlights that only apply to this network,
+	// on top of the user's global ones
+	highlights!: string;
+	highlightExceptions!: string;
+	// Skip the user's global custom highlights here (global exceptions still apply)
+	ignoreGlobalHighlights!: boolean;
 	sasl!: string;
 	saslAccount!: string;
 	saslPassword!: string;
@@ -142,6 +152,9 @@ class Network {
 	proxyPassword!: string;
 	proxyEnabled!: boolean;
 	highlightRegex?: RegExp;
+	// Compiled from highlights and highlightExceptions, never saved
+	customHighlightRegex!: RegExp | null;
+	customHighlightExceptionRegex!: RegExp | null;
 
 	irc?: IrcFramework.Client & {
 		options?: NetworkIrcOptions;
@@ -177,6 +190,9 @@ class Network {
 			username: "",
 			realname: "",
 			leaveMessage: "",
+			highlights: "",
+			highlightExceptions: "",
+			ignoreGlobalHighlights: false,
 			sasl: "",
 			saslAccount: "",
 			saslPassword: "",
@@ -202,6 +218,8 @@ class Network {
 			chanCache: [],
 			ignoreList: [],
 			keepNick: null,
+			customHighlightRegex: null,
+			customHighlightExceptionRegex: null,
 		});
 
 		if (!this.uuid) {
@@ -234,6 +252,10 @@ class Network {
 		const cleanString = (str: unknown) =>
 			typeof str === "string" ? str.replace(/[\x00\r\n]/g, "").substring(0, 300) : "";
 
+		// Highlight lists get more room than other fields
+		const cleanHighlights = (str: unknown) =>
+			typeof str === "string" ? str.replace(/[\x00\r\n]/g, " ").substring(0, 2000) : "";
+
 		this.setNick(cleanNick(String(this.nick || Config.getDefaultNick())));
 
 		if (!this.username) {
@@ -244,6 +266,11 @@ class Network {
 		this.username = cleanString(this.username) || "thelounge";
 		this.realname = cleanString(this.realname) || this.nick;
 		this.leaveMessage = cleanString(this.leaveMessage);
+		this.highlights = cleanHighlights(this.highlights);
+		this.highlightExceptions = cleanHighlights(this.highlightExceptions);
+		this.ignoreGlobalHighlights = !!this.ignoreGlobalHighlights;
+		this.customHighlightRegex = compileHighlightRegex(this.highlights);
+		this.customHighlightExceptionRegex = compileHighlightRegex(this.highlightExceptions);
 		this.password = cleanString(this.password);
 		this.host = cleanString(this.host).toLowerCase();
 		this.name = cleanString(this.name);
@@ -447,6 +474,9 @@ class Network {
 		this.username = String(args.username ?? "");
 		this.realname = String(args.realname ?? "");
 		this.leaveMessage = String(args.leaveMessage ?? "");
+		this.highlights = String(args.highlights ?? "");
+		this.highlightExceptions = String(args.highlightExceptions ?? "");
+		this.ignoreGlobalHighlights = !!args.ignoreGlobalHighlights;
 		this.sasl = String(args.sasl ?? "");
 		this.saslAccount = String(args.saslAccount ?? "");
 		this.saslPassword = String(args.saslPassword ?? "");
@@ -653,6 +683,9 @@ class Network {
 			"username",
 			"realname",
 			"leaveMessage",
+			"highlights",
+			"highlightExceptions",
+			"ignoreGlobalHighlights",
 			"sasl",
 			"saslAccount",
 			"saslPassword",
@@ -694,6 +727,9 @@ class Network {
 			"username",
 			"realname",
 			"leaveMessage",
+			"highlights",
+			"highlightExceptions",
+			"ignoreGlobalHighlights",
 			"sasl",
 			"saslAccount",
 			"saslPassword",

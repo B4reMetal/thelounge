@@ -3,11 +3,17 @@ import type Client from "../client.js";
 import type Chan from "../models/chan.js";
 import type Network from "../models/network.js";
 import {ChanType} from "../../shared/types/chan.js";
+import {MessageType} from "../../shared/types/msg.js";
 
 // IRCv3 draft/read-marker: the server keeps, per buffer, the time up to which
 // the user has read, and shares it between all of their clients.
 // https://ircv3.net/specs/extensions/read-marker
 export const READ_MARKER_CAP = "draft/read-marker";
+
+// Lines people read. The marker is taken from these only: they always carry
+// the server's time, unlike lines made here, some of which were stored before
+// they were told apart by `localTime`.
+const READ_TYPES = new Set([MessageType.MESSAGE, MessageType.ACTION, MessageType.NOTICE]);
 
 // A burst of messages into an open buffer (history playback, a busy channel)
 // moves the marker once, not once per message.
@@ -21,6 +27,19 @@ export function supportsReadMarker(network: Network, chan: Chan) {
 	}
 
 	return network.irc?.network?.cap?.isEnabled(READ_MARKER_CAP) === true;
+}
+
+// The server sends the marker of a channel when it is joined; the one of a
+// private conversation has to be asked for, on connect and when one starts
+export function requestReadMarker(network: Network, chan: Chan) {
+	if (chan.type === ChanType.QUERY && supportsReadMarker(network, chan)) {
+		network.irc!.raw("MARKREAD", chan.name);
+	}
+}
+
+// A line the server says was read on this or another client
+export function wasReadElsewhere(chan: Chan, msg: {time: Date; localTime?: boolean}) {
+	return !msg.localTime && msg.time.getTime() <= chan.readMarker;
 }
 
 function isOpenInBrowser(client: Client, chan: Chan) {
@@ -66,7 +85,7 @@ export function sendReadMarker(network: Network, chan: Chan) {
 
 	// The marker has to be the `time` tag of a message. Lines stamped with our
 	// own clock don't count: ones made here, and all of them without server-time.
-	const last = _.findLast(chan.messages, (msg) => !msg.localTime);
+	const last = _.findLast(chan.messages, (msg) => READ_TYPES.has(msg.type) && !msg.localTime);
 	const time = last?.time?.getTime();
 
 	// The marker only ever moves forward

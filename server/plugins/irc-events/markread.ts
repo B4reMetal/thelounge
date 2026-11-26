@@ -1,6 +1,5 @@
 import {IrcEventHandler} from "../../client.js";
-import {ChanType} from "../../../shared/types/chan.js";
-import {READ_MARKER_CAP, applyReadMarker} from "../readMarker.js";
+import {READ_MARKER_CAP, applyReadMarker, requestReadMarker} from "../readMarker.js";
 
 const TIMESTAMP_PREFIX = "timestamp=";
 
@@ -41,10 +40,6 @@ export default <IrcEventHandler>function (irc, network) {
 			return;
 		}
 
-		network.channels.forEach((chan) => {
-			if (chan.type === ChanType.QUERY) {
-				irc.raw("MARKREAD", chan.name);
-			}
-		});
+		network.channels.forEach((chan) => requestReadMarker(network, chan));
 	});
 };

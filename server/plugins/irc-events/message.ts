@@ -8,7 +8,7 @@ import User from "../../models/user.js";
 import {MessageType} from "../../../shared/types/msg.js";
 import {ChanType} from "../../../shared/types/chan.js";
 import {MessageEventArgs} from "irc-framework";
-import {scheduleReadMarker} from "../readMarker.js";
+import {requestReadMarker, scheduleReadMarker, wasReadElsewhere} from "../readMarker.js";
 
 const nickRegExp = /(?:\x03[0-9]{1,2}(?:,[0-9]{1,2})?)?([\p{Letter}\p{Number}_[\]\\`^{|}-]+)/gu;
 
@@ -109,6 +109,8 @@ export default <IrcEventHandler>function (this: Client, irc, network) {
 					});
 					this.save();
 					chan.loadMessages(this, network);
+					// Started while The Lounge was away, it may have been read elsewhere
+					requestReadMarker(network, chan);
 				}
 			}
 
@@ -194,8 +196,14 @@ export default <IrcEventHandler>function (this: Client, irc, network) {
 				msg.type === MessageType.MESSAGE &&
 				this.config.clientSettings.notifyAllMessages === true);
 
-		// Do not send notifications if the channel is muted or for messages older than 15 minutes (znc buffer for example)
-		if (!chan.muted && notify && (!data.time || data.time > Date.now() - 900000)) {
+		// Do not send notifications if the channel is muted, for messages older than
+		// 15 minutes (znc buffer for example) or ones already read on another client
+		if (
+			!chan.muted &&
+			notify &&
+			(!data.time || data.time > Date.now() - 900000) &&
+			!wasReadElsewhere(chan, msg)
+		) {
 			let title = chan.name;
 			let body = cleanMessage;
 

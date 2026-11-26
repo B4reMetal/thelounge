@@ -9,6 +9,7 @@ import Network from "../../../server/models/network.js";
 import markread from "../../../server/plugins/irc-events/markread.js";
 import {
 	READ_MARKER_CAP,
+	requestReadMarker,
 	scheduleReadMarker,
 	sendReadMarker,
 	setBrowserVisible,
@@ -325,6 +326,22 @@ describe("draft/read-marker", function () {
 			]);
 		});
 
+		it("takes the time from lines people read only", function () {
+			const {chan, client, network, raw, receive} = setup();
+
+			receive(chan, 1);
+			// Stored before lines made here were flagged: an error with no localTime
+			chan.pushMessage(
+				client as unknown as Client,
+				new Msg({type: MessageType.ERROR, time: at(9), text: "Connection closed"})
+			);
+			sendReadMarker(network, chan);
+
+			expect(raw).to.deep.equal([
+				["MARKREAD", "#test", "timestamp=2026-01-01T12:00:01.000Z"],
+			]);
+		});
+
 		it("sends nothing when no message has a time from the server", function () {
 			const {chan, client, network, raw} = setup();
 
@@ -519,6 +536,15 @@ describe("draft/read-marker", function () {
 			const {irc, raw} = setup();
 
 			irc.emit("registered");
+
+			expect(raw).to.deep.equal([["MARKREAD", "bob"]]);
+		});
+
+		it("asks for the marker of a conversation, not of a channel", function () {
+			const {chan, query, network, raw} = setup();
+
+			requestReadMarker(network, query);
+			requestReadMarker(network, chan);
 
 			expect(raw).to.deep.equal([["MARKREAD", "bob"]]);
 		});

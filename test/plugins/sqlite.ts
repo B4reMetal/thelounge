@@ -7,6 +7,7 @@ import Msg from "../../server/models/msg.js";
 import {MessageType} from "../../shared/types/msg.js";
 import Config from "../../server/config.js";
 import MessageStorage, {
+	applyMigrationStep,
 	currentSchemaVersion,
 	migrations,
 	necessaryMigrations,
@@ -108,7 +109,7 @@ describe("SQLite migrations", function () {
 		await serialize_run("BEGIN EXCLUSIVE TRANSACTION");
 
 		for (const stmt of to_execute.map((m) => m.stmts).flat()) {
-			await serialize_run(stmt);
+			applyMigrationStep(db, stmt);
 		}
 
 		await serialize_run("COMMIT TRANSACTION");
@@ -248,7 +249,26 @@ const baseTables = [
 	"CREATE TABLE rollback_steps (id INTEGER PRIMARY KEY AUTOINCREMENT, migration_id INTEGER NOT NULL REFERENCES migrations ON DELETE CASCADE, step INTEGER NOT NULL, statement TEXT NOT NULL)",
 ];
 
-const otherBuilds = [
+// The messages table as stock The Lounge 4.6 creates it
+const stock46Messages =
+	"CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, network TEXT, channel TEXT, time INTEGER, type TEXT, msg TEXT, msgid TEXT)";
+
+// What stock The Lounge 4.6 stores to roll its msgid migration back
+const stock46MsgidRollback = {
+	version: 1784073600000,
+	stmts: ["DROP INDEX msgid_idx", "ALTER TABLE messages DROP COLUMN msgid"],
+};
+
+type OtherBuild = {
+	name: string;
+	version: number;
+	tables?: string[];
+	indexes: string[];
+	// What it recorded for the migrations after stock 4.5's
+	extraRollbacks?: {version: number; stmts: string[]}[];
+};
+
+const otherBuilds: OtherBuild[] = [
 	{
 		name: "stock The Lounge 4.4 / tetrahydroc",
 		version: 1703322560448,
@@ -267,7 +287,73 @@ const otherBuilds = [
 			"CREATE INDEX network_channel_time ON messages (network, channel, time)",
 		],
 	},
+	{
+		name: "stock The Lounge 4.6",
+		version: 1784073600000,
+		tables: [baseTables[0], stock46Messages, baseTables[2], baseTables[3]],
+		indexes: [
+			"CREATE INDEX time ON messages (time)",
+			"CREATE INDEX msg_type_idx on messages (type)",
+			"CREATE INDEX network_channel_time ON messages (network, channel, time)",
+			"CREATE INDEX msgid_idx ON messages (msgid)",
+		],
+		extraRollbacks: [stock46MsgidRollback],
+	},
 ];
+
+// Writes a database the way `build` left it, with 20 messages in net/#chan
+function createOtherBuildDb(file: string, build: OtherBuild) {
+	const db = new Database(file);
+
+	for (const stmt of [...(build.tables ?? baseTables), ...build.indexes]) {
+		db.exec(stmt);
+	}
+
+	db.prepare("INSERT INTO options (name, value) VALUES ('schema_version', ?)").run(
+		build.version.toString()
+	);
+
+	// The rollbacks it stored for each migration it ran. Up to stock 4.5
+	// they're the same everywhere; what each build stored after that is
+	// listed with it.
+	const stored = [
+		...rollbacks.filter((r) => r.version <= Math.min(build.version, 1780272000000)),
+		...(build.extraRollbacks ?? []),
+	];
+
+	for (const rollback of stored) {
+		const migration = db
+			.prepare("INSERT INTO migrations (version) VALUES (?) RETURNING id")
+			.get(rollback.version) as {id: number};
+
+		for (const [step, stmt] of rollback.stmts.entries()) {
+			db.prepare(
+				"INSERT INTO rollback_steps (migration_id, step, statement) VALUES (?, ?, ?)"
+			).run(migration.id, step, stmt);
+		}
+	}
+
+	const hasMsgid = (db.prepare("PRAGMA table_info(messages)").all() as {name: string}[]).some(
+		(c) => c.name === "msgid"
+	);
+
+	for (let i = 0; i < 20; i++) {
+		const time = 1700000000000 + i;
+		const msg = JSON.stringify({text: `old message ${i}`});
+
+		if (hasMsgid) {
+			db.prepare(
+				"INSERT INTO messages (network, channel, time, type, msg, msgid) VALUES ('net', '#chan', ?, 'message', ?, ?)"
+			).run(time, msg, `old-msgid-${i}`);
+		} else {
+			db.prepare(
+				"INSERT INTO messages (network, channel, time, type, msg) VALUES ('net', '#chan', ?, 'message', ?)"
+			).run(time, msg);
+		}
+	}
+
+	db.close();
+}
 
 describe("SQLite databases from other builds", function () {
 	let dir: string;
@@ -283,29 +369,7 @@ describe("SQLite databases from other builds", function () {
 	for (const build of otherBuilds) {
 		it(`should take over a database from ${build.name}`, async function () {
 			const file = path.join(dir, "user.sqlite3");
-			const db = new Database(file);
-
-			for (const stmt of [...baseTables, ...build.indexes]) {
-				db.exec(stmt);
-			}
-
-			db.prepare("INSERT INTO options (name, value) VALUES ('schema_version', ?)").run(
-				build.version.toString()
-			);
-
-			for (const m of migrations.filter((x) => x.version <= build.version)) {
-				db.prepare("INSERT INTO migrations (version) VALUES (?)").run(m.version);
-			}
-
-			const insert = db.prepare(
-				"INSERT INTO messages (network, channel, time, type, msg) VALUES ('net', '#chan', ?, 'message', ?)"
-			);
-
-			for (let i = 0; i < 20; i++) {
-				insert.run(1700000000000 + i, JSON.stringify({text: `old message ${i}`}));
-			}
-
-			db.close();
+			createOtherBuildDb(file, build);
 
 			const store = new MessageStorage("otherBuild");
 
@@ -321,7 +385,7 @@ describe("SQLite databases from other builds", function () {
 						)
 						.pluck()
 						.all()
-				).to.deep.equal(["msg_type_idx", "network_channel_time", "time"]);
+				).to.deep.equal(["msg_type_idx", "msgid_idx", "network_channel_time", "time"]);
 
 				// The existing history is searchable through the new index
 				const found = await store.search({
@@ -336,6 +400,283 @@ describe("SQLite databases from other builds", function () {
 			}
 		});
 	}
+});
+
+// This fork's last schema before the msgid column. DO NOT CHANGE, it has to
+// match what that build wrote.
+const forkBeforeMsgid: OtherBuild = {
+	name: "this fork before msgid",
+	version: 1794820000000,
+	indexes: [
+		...otherBuilds[1].indexes,
+		"CREATE VIRTUAL TABLE messages_fts USING fts5(text, tokenize='trigram', detail=none, content='', contentless_delete=1)",
+		"CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages WHEN old.type = 'message' BEGIN DELETE FROM messages_fts WHERE rowid = old.id; END",
+	],
+	extraRollbacks: [
+		{version: 1794816000000, stmts: []},
+		rollbacks.find((r) => r.version === 1794820000000)!,
+	],
+};
+
+// A stock 4.6 database that this fork's last build before msgid then upgraded.
+// It left the column alone and stored an empty rollback for 1794816000000.
+const stock46ThenForkBeforeMsgid: OtherBuild = {
+	name: "stock The Lounge 4.6, then this fork before msgid",
+	version: 1794820000000,
+	tables: otherBuilds[2].tables,
+	indexes: [...otherBuilds[2].indexes, ...forkBeforeMsgid.indexes.slice(-2)],
+	extraRollbacks: [stock46MsgidRollback, ...forkBeforeMsgid.extraRollbacks!],
+};
+
+describe("SQLite msgid column", function () {
+	let dir: string;
+	let file: string;
+	const stores: MessageStorage[] = [];
+	const net = testNet("net");
+	const chan = testChan("#chan");
+
+	beforeEach(function () {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "thelounge-msgid-"));
+		file = path.join(dir, "user.sqlite3");
+	});
+
+	afterEach(async function () {
+		for (const store of stores.splice(0)) {
+			await store.close();
+		}
+
+		fs.rmSync(dir, {recursive: true, force: true});
+	});
+
+	const open = async () => {
+		const store = new MessageStorage("msgid");
+		stores.push(store);
+		await store._enable(file);
+		store.initDone.resolve();
+		return store;
+	};
+
+	const columns = (store: MessageStorage) =>
+		(store.database.prepare("PRAGMA table_info(messages)").all() as {name: string}[]).map(
+			(c) => c.name
+		);
+
+	const hasIndex = (store: MessageStorage) =>
+		store.database
+			.prepare(
+				"SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'msgid_idx'"
+			)
+			.pluck()
+			.get() === 1;
+
+	// Stores a message with a msgid and reads it back
+	async function roundTrip(store: MessageStorage) {
+		const msg = new Msg({time: new Date(1800000000000), text: "with an id"});
+		msg.msgid = "new-msgid";
+		await store.index(net, chan, msg);
+
+		const messages = await store.getMessages(net, chan, () => undefined);
+		const last = messages[messages.length - 1];
+		expect(last.text).to.equal("with an id");
+		expect(last.msgid).to.equal("new-msgid");
+
+		// Kept in its column, not in the message JSON
+		const row = store.database
+			.prepare("SELECT msg, msgid FROM messages WHERE msgid = 'new-msgid'")
+			.get() as {msg: string; msgid: string};
+		expect(JSON.parse(row.msg)).to.not.have.property("msgid");
+
+		const found = await store.search({
+			searchTerm: "with an id",
+			networkUuid: net.uuid,
+			channelName: chan.name,
+			offset: 0,
+		});
+		expect(found.results.map((m) => m.msgid)).to.deep.equal(["new-msgid"]);
+
+		// And by every way of paging through history
+		const at = msg.time.getTime();
+		const before = await store.getMessagesBefore(net.uuid, chan.name, at, 5, true);
+		const after = await store.getMessagesAfter(net.uuid, chan.name, at, 5);
+		const around = await store.getMessagesAround(net.uuid, chan.name, at + 1, 5);
+		const aroundBefore = await store.getMessagesAround(net.uuid, chan.name, at - 1, 5);
+
+		for (const page of [before, after, around.messages, aroundBefore.messages]) {
+			expect(page.find((m) => m.text === "with an id")?.msgid).to.equal("new-msgid");
+		}
+	}
+
+	it("should create new databases with the column", async function () {
+		const store = await open();
+
+		expect(columns(store)).to.include("msgid");
+		expect(hasIndex(store)).to.equal(true);
+		await roundTrip(store);
+	});
+
+	it("should add the column to a database this fork upgraded before it", async function () {
+		createOtherBuildDb(file, forkBeforeMsgid);
+		const store = await open();
+
+		expect(await store.current_version()).to.equal(currentSchemaVersion);
+		expect(columns(store)).to.include("msgid");
+		expect(hasIndex(store)).to.equal(true);
+
+		// The existing history is still there, without ids
+		const old = await store.getMessages(net, chan, () => undefined);
+		expect(old).to.have.lengthOf(20);
+		expect(old[0].text).to.equal("old message 0");
+		expect(old[0].msgid).to.equal(undefined);
+
+		await roundTrip(store);
+	});
+
+	it("should take over a stock 4.6 database that already has it", async function () {
+		createOtherBuildDb(file, otherBuilds[2]);
+		const store = await open();
+
+		expect(await store.current_version()).to.equal(currentSchemaVersion);
+		expect(columns(store).filter((c) => c === "msgid")).to.have.lengthOf(1);
+		expect(hasIndex(store)).to.equal(true);
+
+		// Its ids are kept
+		const old = await store.getMessages(net, chan, () => undefined);
+		expect(old.map((m) => m.msgid)).to.deep.equal(
+			Array.from({length: 20}, (_, i) => `old-msgid-${i}`)
+		);
+
+		// Stock's own record of the migration is kept
+		expect(
+			store.database
+				.prepare("SELECT count(*) FROM migrations WHERE version = 1784073600000")
+				.pluck()
+				.get()
+		).to.equal(1);
+
+		await roundTrip(store);
+
+		// Rolling back to stock 4.6 keeps the column, which it needs. The
+		// search index goes, so let its background build finish first.
+		await store.finishSearchIndex();
+		await store.downgrade_to(1784073600000);
+		expect(columns(store)).to.include("msgid");
+		expect(hasIndex(store)).to.equal(true);
+		expect(
+			store.database
+				.prepare("SELECT count(*) FROM sqlite_master WHERE name = 'messages_fts'")
+				.pluck()
+				.get()
+		).to.equal(0);
+
+		// Going further back, past it, drops the column once, without failing
+		await store.downgrade_to(1780272000000);
+		expect(columns(store)).to.not.include("msgid");
+		expect(hasIndex(store)).to.equal(false);
+	});
+
+	it("should keep the column when a stock 4.5 database is rolled back to stock 4.6", async function () {
+		createOtherBuildDb(file, otherBuilds[1]);
+		const store = await open();
+
+		expect(columns(store)).to.include("msgid");
+		await store.finishSearchIndex();
+
+		await store.downgrade_to(1784073600000);
+		expect(columns(store)).to.include("msgid");
+		expect(hasIndex(store)).to.equal(true);
+		expect(await store.getMessages(net, chan, () => undefined)).to.have.lengthOf(20);
+
+		await store.downgrade_to(1780272000000);
+		expect(columns(store)).to.not.include("msgid");
+		expect(hasIndex(store)).to.equal(false);
+	});
+
+	it("should keep the column and its ids when rolled back to this fork's older builds", async function () {
+		const store = await open();
+		await roundTrip(store);
+
+		// They work with the column there, and stock 4.6 below them needs it
+		await store.downgrade_to(1794820000000);
+
+		expect(columns(store)).to.include("msgid");
+		expect(hasIndex(store)).to.equal(true);
+		expect(
+			store.database
+				.prepare("SELECT count(*) FROM messages WHERE msgid = 'new-msgid'")
+				.pluck()
+				.get()
+		).to.equal(1);
+
+		store.database
+			.prepare("UPDATE options SET value = '1794820000000' WHERE name = 'schema_version'")
+			.run();
+		await store.run_migrations();
+
+		expect(await store.current_version()).to.equal(currentSchemaVersion);
+		expect(columns(store).filter((c) => c === "msgid")).to.have.lengthOf(1);
+		expect(
+			(await store.getMessages(net, chan, () => undefined)).map((m) => m.msgid)
+		).to.deep.equal(["new-msgid"]);
+	});
+
+	// What an older build stored to roll its migrations back can't be changed
+	// afterwards, so these start from databases as those builds left them.
+	it("should roll a database this fork upgraded before it back to stock 4.6 and 4.5", async function () {
+		createOtherBuildDb(file, forkBeforeMsgid);
+		const store = await open();
+		await store.finishSearchIndex();
+
+		// It never ran stock 4.6's migration, and has its rollback anyway
+		expect(
+			store.database
+				.prepare(
+					"SELECT statement FROM rollback_steps JOIN migrations ON migrations.id = migration_id WHERE version = 1784073600000 ORDER BY step"
+				)
+				.pluck()
+				.all()
+		).to.deep.equal(rollbacks.find((r) => r.version === 1784073600000)!.stmts);
+
+		await store.downgrade_to(1784073600000);
+		expect(columns(store)).to.include("msgid");
+		expect(hasIndex(store)).to.equal(true);
+
+		await store.downgrade_to(1780272000000);
+		expect(columns(store)).to.not.include("msgid");
+		expect(hasIndex(store)).to.equal(false);
+		expect(store.database.prepare("SELECT count(*) FROM messages").pluck().get()).to.equal(20);
+	});
+
+	it("should roll back a stock 4.6 database this fork upgraded before it", async function () {
+		createOtherBuildDb(file, stock46ThenForkBeforeMsgid);
+		const store = await open();
+		await store.finishSearchIndex();
+
+		const ids = Array.from({length: 20}, (_, i) => `old-msgid-${i}`);
+		const storedIds = async () =>
+			(await store.getMessages(net, chan, () => undefined)).map((m) => m.msgid);
+
+		expect(await storedIds()).to.deep.equal(ids);
+		// Stock's own record of its migration is not stored a second time
+		expect(
+			store.database
+				.prepare("SELECT count(*) FROM migrations WHERE version = 1784073600000")
+				.pluck()
+				.get()
+		).to.equal(1);
+
+		// The ids it had before this fork are still there at every step down
+		await store.downgrade_to(1794820000000);
+		expect(await storedIds()).to.deep.equal(ids);
+
+		await store.downgrade_to(1784073600000);
+		expect(hasIndex(store)).to.equal(true);
+		expect(await storedIds()).to.deep.equal(ids);
+
+		// Stock 4.6's own rollback steps, which fail if the index is gone
+		await store.downgrade_to(1780272000000);
+		expect(columns(store)).to.not.include("msgid");
+		expect(hasIndex(store)).to.equal(false);
+	});
 });
 
 describe("SQLite background search index", function () {
@@ -1139,8 +1480,10 @@ describe("SQLite Message Storage", function () {
 	});
 
 	it("should index existing messages when migrating", async function () {
-		// Take the index away the way an older build rolling back would
-		const previous = migrations[migrations.length - 2].version;
+		// Take the index away the way an older build rolling back would. That
+		// also takes away the migrations after it, which run again below.
+		const ftsAt = migrations.findIndex((m) => m.version === 1794820000000);
+		const previous = migrations[ftsAt - 1].version;
 		await store.downgrade_to(previous);
 		store.database
 			.prepare("UPDATE options SET value = ? WHERE name = 'schema_version'")
@@ -1163,6 +1506,7 @@ describe("SQLite Message Storage", function () {
 		expect(store.searchIndexReady).to.equal(true);
 		expect(indexHits("brown fox")).to.equal(1);
 		expect(await findEveryWay("brown fox")).to.deep.equal(["The quick brown fox"]);
+		expect(await store.current_version()).to.equal(currentSchemaVersion);
 	});
 
 	it("should be able to downgrade", async function () {

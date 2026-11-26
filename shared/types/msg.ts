@@ -91,6 +91,8 @@ export interface MassEventSummary {
 export type SharedMsg = {
 	from?: UserInMessage;
 	id: number;
+	// The IRCv3 message id the server gave it, where it gives one
+	msgid?: string;
 	previews?: LinkPreview[];
 	text?: string;
 	type?: MessageType;

@@ -22,10 +22,12 @@ type HandleInput = {
 	from_server?: boolean;
 	message: string;
 	group?: string;
+	msgid?: string;
 };
 
 function convertForHandle(type: MessageType, data: MessageEventArgs): HandleInput {
-	return {...data, type: type};
+	// A tag without a value arrives as an empty string, which is no id
+	return {...data, type: type, msgid: data.tags?.msgid || undefined};
 }
 
 export default <IrcEventHandler>function (this: Client, irc, network) {
@@ -130,6 +132,7 @@ export default <IrcEventHandler>function (this: Client, irc, network) {
 			from: from,
 			highlight: highlight,
 			users: [],
+			msgid: data.msgid,
 		});
 
 		if (showInActive) {

@@ -1,12 +1,16 @@
 import {EventEmitter} from "events";
 import {expect} from "chai";
 import type Client from "../../../server/client.js";
+import Config from "../../../server/config.js";
 import Chan from "../../../server/models/chan.js";
+import Msg from "../../../server/models/msg.js";
 import Network from "../../../server/models/network.js";
 import message from "../../../server/plugins/irc-events/message.js";
 import {ChanState} from "../../../shared/types/chan.js";
 
 type Pushed = {title: string; body: string};
+
+const wasPublic = Config.values.public;
 
 function setup(notifyAllMessages?: boolean) {
 	const irc = Object.assign(new EventEmitter(), {user: {nick: "me"}});
@@ -15,6 +19,7 @@ function setup(notifyAllMessages?: boolean) {
 	network.highlightRegex = /\bme\b/i;
 
 	const pushed: Pushed[] = [];
+	const emitted: {msg: Msg}[] = [];
 	const client = {
 		idMsg: 1,
 		attachedClients: {},
@@ -28,7 +33,11 @@ function setup(notifyAllMessages?: boolean) {
 				},
 			},
 		},
-		emit() {},
+		emit(event: string, data: {msg: Msg}) {
+			if (event === "msg") {
+				emitted.push(data);
+			}
+		},
 	};
 
 	message.call(
@@ -40,7 +49,7 @@ function setup(notifyAllMessages?: boolean) {
 	const say = (text: string, extra: Record<string, unknown> = {}) =>
 		irc.emit("privmsg", {nick: "bob", target: "#test", message: text, ...extra});
 
-	return {irc, chan, pushed, say};
+	return {irc, chan, pushed, emitted, say};
 }
 
 describe("message event web push", function () {
@@ -72,5 +81,50 @@ describe("message event web push", function () {
 		say("in a muted channel");
 
 		expect(pushed).to.have.lengthOf(0);
+	});
+});
+
+describe("message event msgid", function () {
+	it("keeps the id the server tagged the message with", function () {
+		const {chan, say, irc} = setup();
+		Config.values.public = false;
+
+		try {
+			say("tagged", {tags: {msgid: "abc123", time: "2026-01-01T00:00:00.000Z"}});
+			say("untagged", {tags: {}});
+			say("empty id", {tags: {msgid: ""}});
+			say("no tags at all");
+			irc.emit("notice", {
+				nick: "bob",
+				target: "#test",
+				message: "a notice",
+				tags: {msgid: "notice1"},
+			});
+			irc.emit("action", {
+				nick: "bob",
+				target: "#test",
+				message: "waves",
+				tags: {msgid: "action1"},
+			});
+		} finally {
+			Config.values.public = wasPublic;
+		}
+
+		expect(chan.messages.map((m) => m.msgid)).to.deep.equal([
+			"abc123",
+			undefined,
+			undefined,
+			undefined,
+			"notice1",
+			"action1",
+		]);
+	});
+
+	it("sends it to the browser with the message", function () {
+		const {say, emitted} = setup();
+
+		say("tagged", {tags: {msgid: "abc123"}});
+
+		expect(emitted.map((e) => e.msg.msgid)).to.deep.equal(["abc123"]);
 	});
 });

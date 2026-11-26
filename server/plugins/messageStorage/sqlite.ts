@@ -12,7 +12,32 @@ import Network from "../../models/network.js";
 import {SearchQuery, SearchResponse} from "../../../shared/types/storage.js";
 import {MessageType} from "../../../shared/types/msg.js";
 
-type Migration = {version: number; stmts: string[]};
+// A migration step is a statement, or a function for what SQL can't say on
+// its own (such as "add this column unless it's there").
+export type MigrationStep = string | ((db: Database.Database) => void);
+type Migration = {version: number; stmts: MigrationStep[]};
+
+export function applyMigrationStep(db: Database.Database, step: MigrationStep) {
+	if (typeof step === "function") {
+		step(db);
+	} else {
+		db.prepare(step).run();
+	}
+}
+
+// Adds a column, unless the table already has it
+function addColumnIfMissing(table: string, column: string, type: string): MigrationStep {
+	return (db) => {
+		const columns = db.prepare(`PRAGMA table_info(${table})`).all() as {name: string}[];
+
+		if (!columns.some((c) => c.name === column)) {
+			db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+		}
+	};
+}
+
+// The version stock The Lounge 4.6 gave its msgid migration
+const stockMsgidVersion = 1784073600000;
 
 // Search index over the text of `type = 'message'` rows, keyed by messages.id.
 //
@@ -63,12 +88,12 @@ export const searchLimits = {
 };
 type Rollback = {version: number; rollback_forbidden?: boolean; stmts: string[]};
 
-export const currentSchemaVersion = 1794820000000; // use `new Date().getTime()`
+export const currentSchemaVersion = 1795000000000; // use `new Date().getTime()`
 
 // Desired schema, adapt to the newest version and add migrations to the array below
 const schema = [
 	"CREATE TABLE options (name TEXT, value TEXT, CONSTRAINT name_unique UNIQUE (name))",
-	"CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, network TEXT, channel TEXT, time INTEGER, type TEXT, msg TEXT)",
+	"CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, network TEXT, channel TEXT, time INTEGER, type TEXT, msg TEXT, msgid TEXT)",
 	`CREATE TABLE migrations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         version INTEGER NOT NULL UNIQUE,
@@ -85,6 +110,7 @@ const schema = [
 	"CREATE INDEX network_channel_time ON messages (network, channel, time)",
 	"CREATE INDEX time ON messages (time)",
 	"CREATE INDEX msg_type_idx on messages (type)", // needed for efficient storageCleaner queries
+	"CREATE INDEX msgid_idx ON messages (msgid)", // IRCv3 message ids
 	ftsTable,
 	ftsDeleteTrigger,
 ];
@@ -136,7 +162,17 @@ export const migrations: Migration[] = [
 		],
 	},
 	{
-		// This fork's own version of the migration above, from before stock
+		// Stock The Lounge 4.6's msgid migration, under its own version, so a
+		// database that stock 4.6 has upgraded continues from here and can be
+		// rolled back to it. It checks first, like 1795000000000 below.
+		version: stockMsgidVersion,
+		stmts: [
+			addColumnIfMissing("messages", "msgid", "TEXT"),
+			"CREATE INDEX IF NOT EXISTS msgid_idx ON messages (msgid)",
+		],
+	},
+	{
+		// This fork's own version of 1780272000000 above, from before stock
 		// had it. It is kept so databases that already ran it see no gap, and
 		// does nothing on top of it.
 		version: 1794816000000,
@@ -155,6 +191,16 @@ export const migrations: Migration[] = [
 			// stored from now on are indexed as they come in.
 			...ftsBackfillStmts,
 			ftsDeleteTrigger,
+		],
+	},
+	{
+		// IRCv3 message ids again, for databases this fork had already
+		// upgraded: 1784073600000 is below their version, so they skip it.
+		// Databases that ran 1784073600000 already have both.
+		version: 1795000000000,
+		stmts: [
+			addColumnIfMissing("messages", "msgid", "TEXT"),
+			"CREATE INDEX IF NOT EXISTS msgid_idx ON messages (msgid)",
 		],
 	},
 ];
@@ -182,6 +228,14 @@ export const rollbacks: Rollback[] = [
 		],
 	},
 	{
+		// The only rollback that takes the msgid column away: everything
+		// from stock 4.6 up has it or doesn't mind it, see 1795000000000.
+		// insert_rollback_since() stores this one in databases that skipped
+		// the migration too.
+		version: stockMsgidVersion,
+		stmts: ["DROP INDEX IF EXISTS msgid_idx", "ALTER TABLE messages DROP COLUMN msgid"],
+	},
+	{
 		// The index is undone by 1780272000000's rollback above. Databases
 		// that ran this migration before that one existed have its old
 		// rollback steps stored, which do the same thing.
@@ -195,6 +249,16 @@ export const rollbacks: Rollback[] = [
 			"DROP TABLE messages_fts",
 			"DELETE FROM options WHERE name IN ('fts_backfill_next', 'fts_backfill_end')",
 		],
+	},
+	{
+		// Leaves the msgid column and its ids where they are. The versions
+		// below this one are this fork's older builds, which work with the
+		// column there, and under them stock 4.6, which needs it. What a
+		// rollback does is stored in the database when its migration runs,
+		// so the steps of those older versions can't be changed to put the
+		// column back. 1784073600000's rollback removes it, for what is older.
+		version: 1795000000000,
+		stmts: [],
 	},
 ];
 
@@ -223,6 +287,7 @@ export type StoredRow = {
 	time: number;
 	type: string;
 	msg: string;
+	msgid: string | null;
 	// What search should find this row by, null if it isn't searchable
 	searchText: string | null;
 };
@@ -235,9 +300,9 @@ export type StoredRow = {
 export function toStoredRow(networkUuid: string, channelName: string, msg: Msg): StoredRow {
 	const clonedMsg = Object.keys(msg).reduce((newMsg, prop) => {
 		// previews are not stored because storage is cleared on lounge restart
-		// type and time are stored in a separate column
+		// type, time and msgid are stored in separate columns
 		// id IS now stored so it can be retrieved consistently
-		if (prop !== "previews" && prop !== "type" && prop !== "time") {
+		if (prop !== "previews" && prop !== "type" && prop !== "time" && prop !== "msgid") {
 			newMsg[prop] = msg[prop];
 		}
 
@@ -250,6 +315,7 @@ export function toStoredRow(networkUuid: string, channelName: string, msg: Msg):
 		time: msg.time.getTime(),
 		type: msg.type,
 		msg: JSON.stringify(clonedMsg),
+		msgid: msg.msgid ?? null,
 		searchText:
 			msg.type === MessageType.MESSAGE && typeof msg.text === "string" ? msg.text : null,
 	};
@@ -306,7 +372,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 			// Prepare insert statement for batching
 			this.insertStmt = this.database.prepare(
-				"INSERT INTO messages(network, channel, time, type, msg) VALUES(?, ?, ?, ?, ?)"
+				"INSERT INTO messages(network, channel, time, type, msg, msgid) VALUES(?, ?, ?, ?, ?, ?)"
 			);
 			this.ftsInsertStmt = this.database.prepare(
 				"INSERT INTO messages_fts(rowid, text) VALUES(?, ?)"
@@ -552,7 +618,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		const to_execute = necessaryMigrations(dbVersion);
 
 		for (const stmt of to_execute.map((m) => m.stmts).flat()) {
-			await this.serialize_run(stmt);
+			applyMigrationStep(this.database, stmt);
 		}
 
 		await this.update_version_in_db();
@@ -685,7 +751,8 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 						msg.channel,
 						msg.time,
 						msg.type,
-						msg.msg
+						msg.msg,
+						msg.msgid
 					);
 
 					// Same transaction, so the index can't get ahead of or
@@ -761,6 +828,9 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		const _rollbacks = await this.fetch_rollbacks(version);
 
 		if (_rollbacks.length === 0) {
+			// Nothing to undo, but a rollback without steps still has its
+			// migration recorded, which would be in the way of running it again
+			await this.delete_migrations_older_than(version);
 			return version;
 		}
 
@@ -808,7 +878,17 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 	}
 
 	async insert_rollback_since(version: number) {
-		const missing = newRollbacks(version);
+		// A database this fork upgraded before it had stock 4.6's msgid
+		// migration was already past that version and never ran it. It gets
+		// the column from 1795000000000 instead, and needs the rollback that
+		// removes it stored all the same.
+		const hasStockMsgid = await this.serialize_get(
+			"SELECT 1 FROM migrations WHERE version = ?",
+			stockMsgidVersion
+		);
+		const missing = rollbacks.filter(
+			(r) => r.version > version || (r.version === stockMsgidVersion && !hasStockMsgid)
+		);
 
 		for (const rollback of missing) {
 			const migration = await this.serialize_get(
@@ -817,7 +897,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
                 values (?, ?)
                 returning id`,
 				rollback.version,
-				rollback.rollback_forbidden || 0
+				rollback.rollback_forbidden ? 1 : 0
 			);
 
 			let step = 0;
@@ -1113,7 +1193,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 		// Select id from SQLite to use as the canonical message ID
 		const rows = await this.serialize_fetchall(
-			`SELECT id, msg, type, time FROM ${hidden.table} WHERE network = ? AND channel = ?${hidden.sql} ORDER BY time DESC, id DESC LIMIT ?`,
+			`SELECT id, msg, type, time, msgid FROM ${hidden.table} WHERE network = ? AND channel = ?${hidden.sql} ORDER BY time DESC, id DESC LIMIT ?`,
 			networkUuid,
 			channelName.toLowerCase(),
 			...hidden.params,
@@ -1216,7 +1296,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		}
 
 		const maxResults = 100;
-		const columns = "m.id, m.msg, m.type, m.time, m.network, m.channel";
+		const columns = "m.id, m.msg, m.type, m.time, m.msgid, m.network, m.channel";
 		const tail = " ORDER BY m.time DESC, m.id DESC LIMIT ? OFFSET ?";
 		const tailParams = [maxResults, query.offset];
 
@@ -1379,7 +1459,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 		const hidden = this.hideCleared(networkUuid, channelName);
 		const rows = await this.serialize_fetchall(
-			`SELECT id, msg, type, time FROM ${hidden.table} WHERE network = ? AND channel = ? AND time ${
+			`SELECT id, msg, type, time, msgid FROM ${hidden.table} WHERE network = ? AND channel = ? AND time ${
 				inclusive ? "<=" : "<"
 			} ?${hidden.sql} ORDER BY time DESC, id DESC LIMIT ?`,
 			networkUuid,
@@ -1417,7 +1497,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 		// One row more than needed on each side tells whether there is more
 		const beforeRows = await this.serialize_fetchall(
-			`SELECT id, msg, type, time FROM ${hidden.table} WHERE network = ? AND channel = ? AND time <= ?${hidden.sql} ORDER BY time DESC, id DESC LIMIT ?`,
+			`SELECT id, msg, type, time, msgid FROM ${hidden.table} WHERE network = ? AND channel = ? AND time <= ?${hidden.sql} ORDER BY time DESC, id DESC LIMIT ?`,
 			networkUuid,
 			channelName.toLowerCase(),
 			targetTime,
@@ -1426,7 +1506,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 		);
 
 		const afterRows = await this.serialize_fetchall(
-			`SELECT id, msg, type, time FROM ${hidden.table} WHERE network = ? AND channel = ? AND time > ?${hidden.sql} ORDER BY time ASC, id ASC LIMIT ?`,
+			`SELECT id, msg, type, time, msgid FROM ${hidden.table} WHERE network = ? AND channel = ? AND time > ?${hidden.sql} ORDER BY time ASC, id ASC LIMIT ?`,
 			networkUuid,
 			channelName.toLowerCase(),
 			targetTime,
@@ -1468,7 +1548,7 @@ class SqliteMessageStorage implements SearchableMessageStorage {
 
 		const hidden = this.hideCleared(networkUuid, channelName);
 		const rows = await this.serialize_fetchall(
-			`SELECT id, msg, type, time FROM ${hidden.table} WHERE network = ? AND channel = ? AND time >= ?${hidden.sql} ORDER BY time ASC, id ASC LIMIT ?`,
+			`SELECT id, msg, type, time, msgid FROM ${hidden.table} WHERE network = ? AND channel = ? AND time >= ?${hidden.sql} ORDER BY time ASC, id ASC LIMIT ?`,
 			networkUuid,
 			channelName.toLowerCase(),
 			afterTime,
@@ -1542,8 +1622,8 @@ export function trigramQuery(term: string): string | null {
 	return Array.from(trigrams).join(" AND ");
 }
 
-// Turns a `SELECT id, msg, type, time` row back into a message. Search rows
-// also select `network` and `channel`, which are kept on the message.
+// Turns a `SELECT id, msg, type, time, msgid` row back into a message. Search
+// rows also select `network` and `channel`, which are kept on the message.
 function rowToMessage(row: unknown): Message {
 	const r = row as Record<string, unknown>;
 	const msg = JSON.parse(r.msg as string);
@@ -1556,6 +1636,10 @@ function rowToMessage(row: unknown): Message {
 
 	if (r.channel !== undefined) {
 		msg.channelName = r.channel;
+	}
+
+	if (typeof r.msgid === "string") {
+		msg.msgid = r.msgid;
 	}
 
 	// Use stored ID from JSON if available, fall back to SQLite row ID
@@ -1588,10 +1672,6 @@ export function maxMessageId(messages: Message[]): number {
 
 export function necessaryMigrations(since: number): Migration[] {
 	return migrations.filter((m) => m.version > since);
-}
-
-export function newRollbacks(since: number): Rollback[] {
-	return rollbacks.filter((r) => r.version > since);
 }
 
 export default SqliteMessageStorage;

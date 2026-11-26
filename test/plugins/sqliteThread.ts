@@ -22,6 +22,7 @@ function message(id: number, time: number, text: string) {
 		time: new Date(time),
 		text,
 		from: {mode: "", nick: "someone"},
+		msgid: `msgid-${id}`,
 	});
 }
 
@@ -75,6 +76,13 @@ describe("SQLite message storage thread", function () {
 		expect(messages[0].time).to.be.instanceOf(Date);
 		expect(messages[0].time.getTime()).to.equal(1000);
 		expect(messages.map((m) => m.id)).to.deep.equal([101, 102, 103, 104, 105]);
+		expect(messages.map((m) => m.msgid)).to.deep.equal([
+			"msgid-101",
+			"msgid-102",
+			"msgid-103",
+			"msgid-104",
+			"msgid-105",
+		]);
 		expect(reported).to.equal(105);
 		expect(await store.getMaxMessageId()).to.equal(105);
 	});
@@ -82,13 +90,16 @@ describe("SQLite message storage thread", function () {
 	it("pages and searches through the storage thread", async function () {
 		const before = await store.getMessagesBefore(net.uuid, chan.name, 3000, 10);
 		expect(before.map((m) => m.id)).to.deep.equal([101, 102]);
+		expect(before.map((m) => m.msgid)).to.deep.equal(["msgid-101", "msgid-102"]);
 		expect(before[0]).to.be.instanceOf(Msg);
 
 		const after = await store.getMessagesAfter(net.uuid, chan.name, 4000, 10);
 		expect(after.map((m) => m.id)).to.deep.equal([104, 105]);
+		expect(after.map((m) => m.msgid)).to.deep.equal(["msgid-104", "msgid-105"]);
 
 		const around = await store.getMessagesAround(net.uuid, chan.name, 3000, 2);
 		expect(around.messages.map((m) => m.id)).to.deep.equal([103, 104]);
+		expect(around.messages.map((m) => m.msgid)).to.deep.equal(["msgid-103", "msgid-104"]);
 		expect(around.hasMoreBefore).to.equal(true);
 		expect(around.hasMoreAfter).to.equal(true);
 
@@ -99,6 +110,7 @@ describe("SQLite message storage thread", function () {
 			offset: 0,
 		});
 		expect(found.results.map((m) => m.text)).to.deep.equal(["hello number 4"]);
+		expect(found.results[0].msgid).to.equal("msgid-104");
 		expect(found.results[0]).to.be.instanceOf(Msg);
 	});
 
